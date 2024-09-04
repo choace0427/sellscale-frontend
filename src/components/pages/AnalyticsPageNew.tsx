@@ -29,6 +29,10 @@ import Sequence from "./Sequence/Sequence";
 import { IconBooks } from "@tabler/icons";
 import SequenceBuilderV3 from "@common/internal_tools/sequence_builder_v3/SequenceBuilderV3";
 import SequenceBuilderV3ClientFacing from "@common/internal_tools/sequence_builder_v3/SequenceBuilderV3ClientFacing";
+import AIBrainStrategy from "./Strategy/AIBrainStrategy";
+import SellScaleAssistant from "./AIBrain/SellScaleAssistant";
+import WhatHappenedLastWeek from "./AIBrain/WhatHappenedLastWeek";
+import CampaignCurator from "@common/campaigns/CampaignCuratorV2";
 
 const AnalyticsPageNew = () => {
   const userToken = useRecoilValue(userTokenState);
@@ -37,7 +41,8 @@ const AnalyticsPageNew = () => {
   return (
     <PageFrame>
       <Tabs
-        defaultValue="intakes"
+        keepMounted={false}
+        defaultValue="strategy"
         px="xs"
         styles={(theme) => ({
           tab: {
@@ -65,9 +70,13 @@ const AnalyticsPageNew = () => {
         <Tabs.List>
           {/* <Tabs.Tab value='chatbot'>Chatbot</Tabs.Tab> */}
           {/* <Tabs.Tab value="usage">Usage</Tabs.Tab> */}
-          <Tabs.Tab value="intakes">Intakes </Tabs.Tab>
+          {/* <Tabs.Tab value="intakes">Intakes </Tabs.Tab>
           <Tabs.Tab value="assets">Assets </Tabs.Tab>
-          <Tabs.Tab value="sequences">Sequences </Tabs.Tab>
+          <Tabs.Tab value="sequences">Sequences </Tabs.Tab> */}
+          <Tabs.Tab value="strategy">Strategies </Tabs.Tab>
+          <Tabs.Tab value="segment_builder">Segments Builder </Tabs.Tab>
+          <Tabs.Tab value="what_happened_last_week">What Happened Last Week </Tabs.Tab>
+          <Tabs.Tab value="campaign_curator">Campaign Curator</Tabs.Tab>
           <Tabs.Tab value="tam" ml="auto">
             TAM
           </Tabs.Tab>
@@ -115,6 +124,18 @@ const AnalyticsPageNew = () => {
         </Tabs.Panel>
         <Tabs.Panel value="sequences" pt="xs">
           <SequenceBuilderV3ClientFacing />
+        </Tabs.Panel>
+        <Tabs.Panel value="strategy" pt="xs">
+          <AIBrainStrategy />
+        </Tabs.Panel>
+        <Tabs.Panel value="segment_builder" pt="xs">
+          <SellScaleAssistant />
+        </Tabs.Panel>
+        <Tabs.Panel value="what_happened_last_week" pt="xs">
+          <WhatHappenedLastWeek />
+        </Tabs.Panel>
+        <Tabs.Panel value="campaign_curator" pt="xs">
+          <CampaignCurator />
         </Tabs.Panel>
         <Tabs.Panel value="assets" pt="xs">
           <Group position="right" pr={40}>

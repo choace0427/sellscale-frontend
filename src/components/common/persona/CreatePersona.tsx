@@ -24,6 +24,7 @@ import getResearchPointTypes from "@utils/requests/getResearchPointTypes";
 import { ResearchPointType } from "src";
 import { IconBrandLinkedin, IconMailOpened } from "@tabler/icons";
 import Hook from "@pages/channels/components/Hook";
+import { closeAllModals, closeModal } from "@mantine/modals";
 
 type PropsType = {
   createPersona: {
@@ -34,6 +35,49 @@ type PropsType = {
     contactObjective: string;
     contractSize: number;
     templateMode: boolean;
+    purpose: string;
+    override_archetype_id: number | undefined;
+    connectedStrategyId: number|undefined;
+    autoGenerationPayload?: {
+      findSampleProspects?: boolean;
+      writeEmailSequenceDraft?: boolean;
+      writeLISequenceDraft?: boolean;
+      emailSequenceOpened?: boolean;
+      emailSequenceKeywords?: string[];
+      liSequenceOpened?: boolean;
+      liGeneralAngle?: string;
+      emailGeneralAngle?: string;
+      liSequenceKeywords?: string[];
+      liAssetIngestor?: string;
+      emailAssetIngestor?: string;
+      liCtaGenerator?: boolean;
+      ctaTarget?: string;
+      selectedVoice?: number;
+      numSteps: number,
+      withData: string,
+      numVariance: number,
+      liPainPoint?: string;
+      liSequenceState?: {
+        howItWorks: boolean;
+        varyIntroMessages: boolean;
+        breakupMessage: boolean;
+        uniqueOffer: boolean;
+        conferenceOutreach: boolean;
+        cityChat: boolean;
+        formerWorkAlum: boolean;
+        feedbackBased: boolean;
+      };
+      emailSequenceState?: {
+        howItWorks: boolean;
+        varyIntroMessages: boolean;
+        breakupMessage: boolean;
+        uniqueOffer: boolean;
+        conferenceOutreach: boolean;
+        cityChat: boolean;
+        formerWorkAlum: boolean;
+        feedbackBased: boolean;
+      };
+    }
   };
 };
 
@@ -43,26 +87,23 @@ export default function CreatePersona(props: PropsType) {
   const [currentProject, setCurrentProject] = useRecoilState(
     currentProjectState
   );
-  const [connectionType, setConnectionType] = useState<string | undefined>(undefined); // ["RANDOM", "ALL_PROSPECTS", "OPENED_EMAIL_PROSPECTS_ONLY", "CLICKED_LINK_PROSPECTS_ONLY"
+  const [connectionType, setConnectionType] = useState<string | undefined>(
+    undefined
+  ); // ["RANDOM", "ALL_PROSPECTS", "OPENED_EMAIL_PROSPECTS_ONLY", "CLICKED_LINK_PROSPECTS_ONLY"
   const navigate = useNavigate();
 
   const [emailChecked, setEmailChecked] = useState(false);
   const [linkedinChecked, setLinkedinChecked] = useState(false);
 
-  const { data: researchPointTypes } = useQuery({
-    queryKey: [`query-get-research-point-types`],
-    queryFn: async () => {
-      const response = await getResearchPointTypes(userToken);
-      return response.status === "success"
-        ? (response.data as ResearchPointType[])
-        : [];
-    },
-    refetchOnWindowFocus: false,
-  });
-
-  const createPersonaHandler = async (linkedinChecked?: boolean, emailChecked?: boolean) => {
+  const createPersonaHandler = async (
+    linkedinChecked?: boolean,
+    emailChecked?: boolean,
+    autoGenerationPayload?: PropsType["createPersona"]["autoGenerationPayload"]
+  ) => {
     setCreatingPersona(true);
-    const result = await createPersona(
+    let result;
+    try{
+    result = await createPersona(
       userToken,
       props.createPersona.name,
       props.createPersona.ctas,
@@ -75,8 +116,17 @@ export default function CreatePersona(props: PropsType) {
         linkedinChecked,
         emailChecked,
         connectionType,
-      }
+        purpose: props.createPersona.purpose,
+      },
+      autoGenerationPayload,
+      props.createPersona.connectedStrategyId,
+      props.createPersona.override_archetype_id
     );
+    } catch (e) {
+      console.error("Failed to create persona & CTAs", e);
+      setCreatingPersona(false);
+      return;
+    }
     if (result.status === "error") {
       console.error("Failed to create persona & CTAs");
       return;
@@ -87,27 +137,12 @@ export default function CreatePersona(props: PropsType) {
       message: "Your campaign has been created successfully.",
       color: "teal",
     });
-
-    // Create default template
-    if (props.createPersona.templateMode) {
-      await createLiTemplate(
-        userToken,
-        result.data,
-        "Great to connect!",
-        `Hi [first name]! [personalization related to them]. It’s great to connect.`,
-        true,
-        // researchPointTypes?.map((rpt) => rpt.name) || [], WE SHOULD LET THE BACKEND USE THE DEFAULT RESEARCH POINTS
-        [],
-        ""
-      );
-    }
-
     // setTimeout(() => {
     //   window.location.href = "/contacts/overview";
     // }, 3000);
 
     //short circuit to enter the user into the campaign shell.
-    if (result.data){
+    if (result.data) {
       window.location.href = `/campaign_v2/${result.data as number}`;
       return result.data as number;
     }
@@ -116,20 +151,20 @@ export default function CreatePersona(props: PropsType) {
 
     setCurrentProject(result.data);
 
-    
-
     return result.data as number;
   };
 
   return (
     <Card>
-      <Flex direction={"column"} mb="md">
-      </Flex>
+      <Flex direction={"column"} mb="md"></Flex>
       <Flex align={"center"} justify={"space-between"} gap={"lg"}>
         <Button
           // disabled={!props.createPersona?.name || !props.createPersona.contactObjective}
           // onClick={() => createPersonaHandler()}
           // loading={creatingPersona}
+          onClick={() => {
+            closeAllModals();
+          }}
           fullWidth
           variant="outline"
           color="gray"
@@ -138,11 +173,11 @@ export default function CreatePersona(props: PropsType) {
         </Button>
         <Button
           // disabled={!props.createPersona?.name || !props.createPersona.contactObjective}
-          onClick={() => createPersonaHandler(linkedinChecked, emailChecked)}
+          onClick={() => createPersonaHandler(linkedinChecked, emailChecked, props.createPersona?.autoGenerationPayload)}
           loading={creatingPersona}
           fullWidth
         >
-          Create Campaign
+          {window.location.href.includes('/campaign_v2') ? 'Generate Sequences' : 'Create Campaign'}
         </Button>
       </Flex>
     </Card>

@@ -61,6 +61,39 @@ export const patchTestingVolume = async (
   }
 };
 
+export const getSentVolumeDuringPeriod = async (
+  userToken: string,
+  startDate: Date,
+  endDate: Date,
+  campaignId?: number
+): Promise<number> => {
+  try {
+    const response = await fetch(
+      `${API_URL}/client/sent_volume_during_period`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: "Bearer " + userToken,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ start_date: startDate.toISOString(), end_date: endDate.toISOString(), campaign_id: campaignId}),
+      }
+    );
+
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+
+    const data = await response.json();
+    return data.sent_emails_count;
+  } catch (error) {
+    console.error("Error fetching sent volume during period", error);
+    return 0;
+  } finally {
+    console.log("Sent volume during period API call completed");
+  }
+};
+
 export const fetchTotalContacts = async (
   userToken: string,
   client_archetype_id: number
@@ -147,6 +180,36 @@ export const fetchCampaignSequences = async (
     console.error("Error fetching campaign sequences", error);
   } finally {
     console.log("Campaign sequences API call completed");
+  }
+};
+
+export const fetchCampaignAnalytics = async (
+  userToken: string,
+  client_archetype_id: number
+) => {
+  try {
+    const response = await fetch(
+      `${API_URL}/client/campaign_analytics?client_archetype_id=${client_archetype_id}`,
+      {
+        method: "GET",
+        headers: {
+          Authorization: `Bearer ${userToken}`,
+          "Content-Type": "application/json",
+        },
+        mode: "cors",
+      }
+    );
+
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+
+    const data = await response.json();
+    return data;
+  } catch (error) {
+    console.error("Error fetching campaign analytics", error);
+  } finally {
+    console.log("Campaign analytics API call completed");
   }
 };
 

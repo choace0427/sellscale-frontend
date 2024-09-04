@@ -1,36 +1,27 @@
-import {
-  Badge,
-  Group,
-  Paper,
-  Text,
-  ScrollArea,
-  Flex,
-  Avatar,
-  Box,
-  Loader,
-  Skeleton,
-  TextInput,
-  ActionIcon,
-  Modal,
-  Button,
-  Select,
-} from "@mantine/core";
+import { Badge, Group, Paper, Text, ScrollArea, Flex, Avatar, Box, Loader, Skeleton, TextInput, ActionIcon, Modal, Button, Select } from "@mantine/core";
 import { useEffect, useRef, useState, useCallback } from "react";
 import { IconSearch, IconFilter } from "@tabler/icons-react";
+import { API_URL } from "@constants/data";
 import { fetchCampaignContacts } from "@utils/requests/campaignOverview";
-import { useRecoilValue } from "recoil";
-import { userTokenState } from "@atoms/userAtoms";
+import { useRecoilState, useRecoilValue } from "recoil";
+import { campaignContactsState, userTokenState } from "@atoms/userAtoms";
 import CampaignChannelPage from "@pages/CampaignChannelPage";
 import FindContactsPage from "@pages/FindContactsPage";
 import { debounce } from "lodash";
+import { currentProjectState } from "@atoms/personaAtoms";
+import ArchetypeFilterModal from "./ArchetypeFilterModal";
 
-interface Contact {
+export interface Contact {
   first_name: string;
   last_name: string;
+  id: number;
   email: string;
   avatar: string;
   title: string;
   company: string;
+  approved_prospect_email_id?: number;
+  approved_outreach_message_id?: number;
+  generatedText?: string;
   icp_fit_score: number;
 }
 
@@ -40,7 +31,7 @@ export function ContactsInfiniteScroll({
   campaignId,
   getTotalContacts,
   totalContacts,
-  loadingTotalContacts
+  loadingTotalContacts,
 }: {
   campaignId: number;
   getTotalContacts: any;
@@ -52,17 +43,17 @@ export function ContactsInfiniteScroll({
   const [searchTerm, setSearchTerm] = useState("");
   const [hasMoreContacts, setHasMoreContacts] = useState(true);
   const scrollViewportRef = useRef<HTMLDivElement>(null);
-  const [showCampaignTemplateModal, setShowCampaignTemplateModal] = useState(
-    false
-  );
+  const [isArchetypeUploading, setIsArchetypeUploading] = useState(false);
+  const [showCampaignTemplateModal, setShowCampaignTemplateModal] = useState(false);
   const userToken = useRecoilValue(userTokenState);
+  const [campaignContacts, setCampaignContacts] = useRecoilState(campaignContactsState);
   const offsetRef = useRef(0);
   const [modalOpened, setModalOpened] = useState(false);
+  const currentProject = useRecoilValue(currentProjectState);
 
-  const getIcpFitBadge = (
-    icp_fit_score: number,
-    size: "sm" | "md" | "xs" = "sm"
-  ) => {
+  console.log("--------", campaignContacts);
+
+  const getIcpFitBadge = (icp_fit_score: number, size: "sm" | "md" | "xs" = "sm") => {
     let label = "";
     let color = "";
 
@@ -106,23 +97,24 @@ export function ContactsInfiniteScroll({
     );
   };
 
+  // useEffect(() => {
+  //   setCampaignContacts(contacts);
+  // }, [contacts]);
+
   const loadMoreContacts = async () => {
     if (loading || !hasMoreContacts) return; // Prevent multiple calls while loading or if no more contacts
     setLoading(true);
     try {
-      const newContacts = await fetchCampaignContacts(
-        userToken,
-        campaignId,
-        offsetRef.current,
-        batchSize,
-        searchTerm,
-        false
-      );
+      const newContacts = await fetchCampaignContacts(userToken, campaignId, offsetRef.current, batchSize, searchTerm, false);
       if (newContacts.sample_contacts.length === 0) {
         setHasMoreContacts(false); // No more contacts to load
       } else {
-        setContacts((prevContacts) => {
-          const uniqueContacts = new Set([...prevContacts, ...newContacts.sample_contacts]);
+        // setContacts((prevContacts) => {
+        //   const uniqueContacts = new Set([...prevContacts, ...newContacts.sample_contacts]);
+        //   return Array.from(uniqueContacts);
+        // });
+        setCampaignContacts((prevContacts) => {
+          const uniqueContacts = new Set([...(prevContacts || []), ...(newContacts.sample_contacts || [])]);
           return Array.from(uniqueContacts);
         });
         //refetch total contacts to update the count
@@ -139,15 +131,9 @@ export function ContactsInfiniteScroll({
   const fetchInitialContacts = async (searchTerm: string) => {
     setLoading(true);
     try {
-      const initialContacts = await fetchCampaignContacts(
-        userToken,
-        campaignId,
-        0,
-        batchSize,
-        searchTerm,
-        false,
-      );
-      setContacts(Array.from(new Set(initialContacts.sample_contacts)));
+      const initialContacts = await fetchCampaignContacts(userToken, campaignId, 0, batchSize, searchTerm, false);
+      setCampaignContacts(Array.from(new Set(initialContacts.sample_contacts)));
+      // setContacts(Array.from(new Set(initialContacts.sample_contacts)));
       offsetRef.current = batchSize;
       setHasMoreContacts(initialContacts.sample_contacts.length === batchSize);
     } catch (error) {
@@ -157,13 +143,33 @@ export function ContactsInfiniteScroll({
     }
   };
 
-  const debouncedFetchInitialContacts = useCallback(
-    debounce(fetchInitialContacts, 300),
-    []
-  );
+  const debouncedFetchInitialContacts = useCallback(debounce(fetchInitialContacts, 300), []);
+
+  const fetchIsArchetypeUploading = async () => {
+    try {
+      const response = await fetch(`${API_URL}/client/upload_in_progres?client_archetype_id=${campaignId}`, {
+        headers: {
+          Authorization: "Bearer " + userToken,
+          "Content-Type": "application/json",
+        },
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      const data = await response.json();
+      setIsArchetypeUploading(data.upload_in_progress);
+    } catch (error) {
+      console.error("Error fetching archetype uploading status", error);
+    } finally {
+      console.log("Archetype uploading status API call completed");
+    }
+  };
 
   useEffect(() => {
     fetchInitialContacts(searchTerm);
+    fetchIsArchetypeUploading();
   }, [campaignId]);
 
   useEffect(() => {
@@ -185,31 +191,28 @@ export function ContactsInfiniteScroll({
           <FindContactsPage />
         </Box>
       </Modal>
-      <Modal
-        opened={showCampaignTemplateModal}
-        onClose={() => {
-          setShowCampaignTemplateModal(false);
-        }}
-        size="1100px"
-      >
-        <CampaignChannelPage
-          campaignId={campaignId}
-          cType={"filter_contact"}
-          hideHeader={true}
-          hideEmail={false}
-          hideLinkedIn={false}
-          hideAssets={true}
-        />
-      </Modal>
+      {/*<Modal*/}
+      {/*  opened={showCampaignTemplateModal}*/}
+      {/*  onClose={() => {*/}
+      {/*    setShowCampaignTemplateModal(false);*/}
+      {/*  }}*/}
+      {/*  size="1150px"*/}
+      {/*>*/}
+      {/*  <CampaignChannelPage*/}
+      {/*    campaignId={currentProject?.id || -1}*/}
+      {/*    hideIcpFilters={false}*/}
+      {/*    hideAssets={true}*/}
+      {/*    cType={"filter_contact"}*/}
+      {/*    hideHeader={true}*/}
+      {/*    hideEmail={true}*/}
+      {/*    hideLinkedIn={true}*/}
+      {/*  />*/}
+      {/*</Modal>*/}
+      <ArchetypeFilterModal setShowContactAccountFilterModal={setShowCampaignTemplateModal}
+                            showContactAccountFilterModal={showCampaignTemplateModal}/>
       <Flex gap={"sm"} align={"center"}>
         <Flex direction="column" w={"100%"} gap="sm">
-          <Flex
-            justify="space-between"
-            align="center"
-            w={"100%"}
-            style={{ borderBottom: "1px solid #ECEEF1" }}
-            p={"md"}
-          >
+          <Flex justify="space-between" align="center" w={"100%"} style={{ borderBottom: "1px solid #ECEEF1" }} p={"md"}>
             <Text fw={600} size={20} color="#37414E">
               Contacts
             </Text>
@@ -232,13 +235,9 @@ export function ContactsInfiniteScroll({
               value={searchTerm}
               onChange={(event) => setSearchTerm(event.currentTarget.value)}
             />
-            <ActionIcon
-              variant="outline"
-              size={"md"}
-              onClick={() => setShowCampaignTemplateModal(true)}
-            >
-              <IconFilter size={"0.9rem"} color="gray" />
-            </ActionIcon>
+            <Button variant="outline" onClick={() => setShowCampaignTemplateModal(true)} size="md" compact leftIcon={<IconFilter size={16} />}>
+              Filter prospects
+            </Button>
           </Flex>
         </Flex>
       </Flex>
@@ -246,56 +245,41 @@ export function ContactsInfiniteScroll({
         style={{ height: 300 }}
         onScrollPositionChange={({ y }) => {
           const threshold = 50; // Load more contacts 50px before reaching the end
-          if (
-            y + scrollViewportRef.current!.clientHeight >=
-            scrollViewportRef.current!.scrollHeight - threshold
-          ) {
+          if (y + scrollViewportRef.current!.clientHeight >= scrollViewportRef.current!.scrollHeight - threshold) {
             loadMoreContacts();
           }
         }}
         viewportRef={scrollViewportRef}
       >
         <Flex direction="column" gap="sm">
-          {contacts.map((contact, index) => (
-            <Flex key={index} gap="sm">
-              <Box ml="md">
-                <Flex align="center" gap="xs">
-                  <Avatar size="md" radius="xl" src={contact.avatar} />
-                  <Flex direction="column">
-                    <Flex align="center" gap="xs">
-                      <Text fw={500} size={"sm"}>
-                        {(contact.first_name + " " + contact.last_name).slice(
-                          0,
-                          25
-                        )}
-                        {(contact.first_name + " " + contact.last_name).length >
-                        25
-                          ? "..."
-                          : ""}
+          {campaignContacts &&
+            campaignContacts.length >= 1 &&
+            campaignContacts.map((contact, index) => (
+              <Flex key={index} gap="sm">
+                <Box ml="md">
+                  <Flex align="center" gap="xs">
+                    <Avatar size="md" radius="xl" src={contact.avatar} />
+                    <Flex direction="column">
+                      <Flex align="center" gap="xs">
+                        <Text fw={500} size={"sm"}>
+                          {(contact.first_name + " " + contact.last_name).slice(0, 25)}
+                          {(contact.first_name + " " + contact.last_name).length > 25 ? "..." : ""}
+                        </Text>
+                        {getIcpFitBadge(contact.icp_fit_score, "xs")}
+                      </Flex>
+                      <Text color="gray" fw={500} fz={10}>
+                        {(contact.title + " at " + contact.company).slice(0, 40)}
+                        {(contact.title + " at " + contact.company).length > 40 ? "..." : ""}
                       </Text>
-                      {getIcpFitBadge(contact.icp_fit_score, "xs")}
                     </Flex>
-                    <Text color="gray" fw={500} fz={10}>
-                      {(contact.title + " at " + contact.company).slice(0, 40)}
-                      {(contact.title + " at " + contact.company).length > 40
-                        ? "..."
-                        : ""}
-                    </Text>
                   </Flex>
-                </Flex>
-              </Box>
-            </Flex>
-          ))}
+                </Box>
+              </Flex>
+            ))}
           {loading && (
             <Flex direction="column" gap="sm">
               {Array.from({ length: batchSize }).map((_, index) => (
-                <Flex
-                  key={index}
-                  direction="row"
-                  align="center"
-                  gap="sm"
-                  ml="lg"
-                >
+                <Flex key={index} direction="row" align="center" gap="sm" ml="lg">
                   <Skeleton height={50} width={50} radius="150%" />
                   <Flex direction="column" gap="xs" w="100%">
                     <Skeleton height={8} radius="xl" width="80%" />
@@ -316,10 +300,22 @@ export function ContactsInfiniteScroll({
               </>
             ) : loadingTotalContacts ? (
               <>
-               <Text>Showing {contacts?.length} contacts of <Loader size="xs" variant="dots" /></Text>
+                <Text>
+                  Showing {campaignContacts?.length} contacts of <Loader size="xs" variant="dots" />
+                  {/* Showing {contacts?.length} contacts of <Loader size="xs" variant="dots" /> */}
+                </Text>
               </>
             ) : (
-              `Showing ${contacts?.length} contacts of ${totalContacts}`
+              <>
+                {`Showing ${campaignContacts?.length} contacts of ${campaignContacts?.length  && totalContacts < campaignContacts?.length ? campaignContacts?.length : totalContacts}`}
+                {isArchetypeUploading && (
+                  <Flex direction="column" align="center" mt="xs">
+                    <Text>
+                      Upload in progress <Loader size="xs" variant="dots" />
+                    </Text>
+                  </Flex>
+                )}
+              </>
             )}
           </Text>
           {/* <Button variant="light" onClick={resetContacts}>

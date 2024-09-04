@@ -1,5 +1,4 @@
 import { userTokenState } from "@atoms/userAtoms";
-import YourNetworkSection from "@common/your_network/YourNetworkSection";
 import {
   Card,
   Flex,
@@ -7,161 +6,50 @@ import {
   Title,
   Text,
   TextInput,
-  Anchor,
-  NumberInput,
   Tooltip,
   Button,
   ActionIcon,
-  Badge,
-  useMantineTheme,
-  Loader,
-  Group,
-  Stack,
-  Box,
   Select,
-  Progress,
-  Divider,
-  Avatar,
   rem,
+  Modal,
+  Group,
+  useMantineTheme,
+  Image,
+  Paper,
+  Box,
+  Divider,
 } from "@mantine/core";
-import { useForm } from "@mantine/form";
-import { openConfirmModal } from "@mantine/modals";
 import { showNotification } from "@mantine/notifications";
 import {
-  IconAffiliate,
   IconBrandLinkedin,
+  IconCloudUpload,
+  IconCornerRightDown,
   IconDatabase,
-  IconDownload,
-  IconFile,
+  IconPhoto,
+  IconPlus,
+  IconPropeller,
+  IconRefresh,
   IconTable,
   IconUpload,
+  IconX,
 } from "@tabler/icons";
 import { setPageTitle } from "@utils/documentChange";
-import { valueToColor } from "@utils/general";
-import getSalesNavigatorLaunches, {
-  getSalesNavigatorLaunch,
-} from "@utils/requests/getSalesNavigatorLaunches";
-import postLaunchSalesNavigator from "@utils/requests/postLaunchSalesNavigator";
-import { useEffect, useRef, useState } from "react";
-import { useRecoilState, useRecoilValue } from "recoil";
-import { SalesNavigatorLaunch } from "src";
+import { useEffect, useState } from "react";
+import { useRecoilValue } from "recoil";
 import SalesNavigatorComponent from "./SalesNavigatorPage";
-import IndividualsDashboard from "@common/individuals/IndividualsDashboard";
-import { IconCsv, IconSparkles } from "@tabler/icons-react";
 import FileDropAndPreview from "@modals/upload-prospects/FileDropAndPreview";
 import LinkedInURLUpload from "@modals/upload-prospects/LinkedInURLUpload";
 import { currentProjectState } from "@atoms/personaAtoms";
 import ChatDashboard from "@common/individuals/ChatDashboard";
 import UploadDetailsDrawer from "@drawers/UploadDetailsDrawer";
-import {
-  prospectUploadDrawerIdState,
-  prospectUploadDrawerOpenState,
-} from "@atoms/uploadAtoms";
-import { getAllUploads } from "@utils/requests/getPersonas";
-import { useQuery } from "@tanstack/react-query";
-import { DataTable, DataTableSortStatus } from "mantine-datatable";
 import _ from "lodash";
-import FileDropAndPreviewV2 from "@modals/upload-prospects/FileDropAndPreviewV2";
 import { API_URL } from "@constants/data";
 import SegmentV2 from "./SegmentV2/SegmentV2";
-
-type UploadDetailType = {
-  process: number;
-  success: number;
-  failed: number;
-  disqualified: number;
-  total: number;
-  percent: number;
-};
-
-type SDRType = {
-  avatar: string;
-  name: string;
-};
-
-type CSVType = {
-  fileName: string;
-  sdr: SDRType;
-  upload_details: UploadDetailType;
-};
-
-const test_data = [
-  {
-    fileName: "NewUploads1.csv",
-    sdr: {
-      avatar: "",
-      name: "Adam Meehan",
-    } as SDRType,
-    upload_details: {
-      process: 300,
-      success: 199,
-      failed: 50,
-      disqualified: 50,
-      total: 521,
-      percent: (300 / 500) * 100,
-    } as UploadDetailType,
-  },
-  {
-    fileName: "NewUploads2.csv",
-    sdr: {
-      avatar: "",
-      name: "Adam Meehan",
-    } as SDRType,
-    upload_details: {
-      process: 100,
-      success: 99,
-      failed: 0,
-      disqualified: 0,
-      total: 521,
-      percent: (100 / 521) * 100,
-    } as UploadDetailType,
-  },
-  {
-    fileName: "NewUploads3.csv",
-    sdr: {
-      avatar: "",
-      name: "Adam Meehan",
-    } as SDRType,
-    upload_details: {
-      process: 521,
-      success: 479,
-      failed: 20,
-      disqualified: 20,
-      total: 521,
-      percent: (521 / 521) * 100,
-    } as UploadDetailType,
-  },
-  {
-    fileName: "NewUploads4.csv",
-    sdr: {
-      avatar: "",
-      name: "Adam Meehan",
-    } as SDRType,
-    upload_details: {
-      process: 521,
-      success: 499,
-      failed: 20,
-      disqualified: 0,
-      total: 521,
-      percent: (521 / 521) * 100,
-    } as UploadDetailType,
-  },
-  {
-    fileName: "NewUploads5.csv",
-    sdr: {
-      avatar: "",
-      name: "Adam Meehan",
-    } as SDRType,
-    upload_details: {
-      process: 100,
-      success: 99,
-      failed: 0,
-      disqualified: 0,
-      total: 521,
-      percent: (100 / 521) * 100,
-    } as UploadDetailType,
-  },
-];
+import { useDisclosure } from "@mantine/hooks";
+import OpenCV from "./OpenCV";
+import SegmentV3 from "@pages/SegmentV3/SegmentV3";
+import FileDropLinkedinURLFinderPreview from "@modals/upload-prospects/FileDropLinkedinURLFinderPreview";
+import PreFiltersV2EditModal from "@modals/PrefiltersV2/PrefilterV2EditModal";
 
 type Segment = {
   id: number;
@@ -173,32 +61,18 @@ type Segment = {
 export default function FindContactsPage() {
   setPageTitle("Find Contacts");
 
+  const theme = useMantineTheme();
+
   const userToken = useRecoilValue(userTokenState);
   const currentProject = useRecoilValue(currentProjectState);
   const activePersona = currentProject?.id;
   const activePersonaEmoji = currentProject?.emoji;
   const activePersonaName = currentProject?.name;
 
-  const [uploadDrawerOpened, setUploadDrawerOpened] = useRecoilState(
-    prospectUploadDrawerOpenState
-  );
-  const [uploadId, setUploadId] = useRecoilState(prospectUploadDrawerIdState);
-
-  const [sortStatus, setSortStatus] = useState<DataTableSortStatus>({
-    columnAccessor: "fileName",
-    direction: "desc",
-  });
-
-  const [records, setRecords] = useState(test_data);
-
   const [segments, setSegments]: any = useState<Segment[]>([]);
   const urlParams = new URLSearchParams(window.location.search);
 
-  const [selectedSegmentId, setSelectedSegmentId]: any = useState<
-    number | null
-  >(
-    urlParams.get("segment_id") ? parseInt(urlParams.get("segment_id")!) : null
-  );
+  const [selectedSegmentId, setSelectedSegmentId]: any = useState<number | null>(urlParams.get("segment_id") ? parseInt(urlParams.get("segment_id")!) : null);
 
   const fetchSegments = async () => {
     const response = await fetch(`${API_URL}/segment/all`, {
@@ -211,51 +85,71 @@ export default function FindContactsPage() {
     setSegments(segments);
   };
 
-  const handleSortStatusChange = (status: DataTableSortStatus) => {
-    // setPage(1)
-    console.log(status);
-    const data = _.sortBy(test_data, sortStatus.columnAccessor);
-    setRecords(sortStatus.direction === "desc" ? data.reverse() : data);
-    // const data = sortBy(companies, sortStatus.columnAccessor) as Company[]
-    // setRecords(sortStatus.direction === 'desc' ? data.reverse() : data)
-    setSortStatus(status);
-  };
-
-  const { data: uploads } = useQuery({
-    queryKey: [`query-get-persona-uploads`],
-    queryFn: async () => {
-      const response = await getAllUploads(userToken, activePersona!);
-      return response.status === "success" ? response.data : [];
-    },
-    enabled: !!activePersona,
-  });
   const [tab, setTab] = useState("");
-
   useEffect(() => {
     fetchSegments();
   }, []);
 
+  const [createSegmentOpened, { open: openCreateSegment, close: closeCreateSegment }] = useDisclosure(false);
+  const [createSegmentName, setCreateSegmentName] = useState("");
+  const [createSegmentLoading, setCreateSegmentLoading] = useState(false);
+  const createSegment = async () => {
+    setCreateSegmentLoading(true);
+
+    fetch(`${API_URL}/segment/create`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${userToken}`,
+      },
+      body: JSON.stringify({
+        segment_title: createSegmentName,
+        filters: {},
+      }),
+    })
+      .then((response) => response.json())
+      .then((data) => {
+        console.log(data);
+        setSelectedSegmentId(data.id);
+      })
+      .finally(() => {
+        showNotification({
+          title: "Success",
+          message: "Segment created successfully",
+          color: "teal",
+        });
+        setCreateSegmentLoading(false);
+        setCreateSegmentName("");
+        closeCreateSegment();
+        fetchSegments();
+      });
+  };
+
+  const [tabHover, setTabHover] = useState(false);
+
   return (
     <Flex p="lg" direction="column" h="100%">
-      <Title order={4}>
-        <Card withBorder>
-          <Text color="gray">
-            Find Contacts: {activePersonaEmoji} {activePersonaName}
-          </Text>
-        </Card>
-      </Title>
+      <Box mt={"sm"}>
+        <Title order={4} color="gray">
+          Add Contacts
+        </Title>
+        <Divider mt={"sm"} />
+      </Box>
       <Tabs
         defaultValue="sellscale-db"
         mt="md"
+        orientation="vertical"
         keepMounted={false}
         h="100%"
         variant="unstyled"
         styles={(theme) => ({
           tabsList: {
             // backgroundColor: theme.colors.blue[theme.fn.primaryShade()],
-
-            height: "44px",
-            marginInline: "20px",
+            // height: "44px",
+            // marginInline: "20px",
+            marginRight: "20px",
+            height: "fit-content",
+            gap: "10px",
           },
           panel: {
             backgroundColor: theme.white,
@@ -290,46 +184,37 @@ export default function FindContactsPage() {
           },
         })}
       >
-        <Tabs.List grow>
+        <Tabs.List grow onMouseOver={() => setTabHover(true)} onMouseLeave={() => setTabHover(false)}>
+          <Tooltip label="Advanced - SellScale Database V2" position="bottom">
+            <Tabs.Tab value="sellscale-db-v2" icon={<IconDatabase size="0.9rem" />} onClick={() => setTab("sellscale-db-v2")}>
+              {tabHover && "Contact Database V2"}
+            </Tabs.Tab>
+          </Tooltip>
           <Tooltip label="Advanced - SellScale Database" position="bottom">
-            <Tabs.Tab
-              value="sellscale-db"
-              icon={<IconDatabase size="0.9rem" />}
-              onClick={() => setTab("sellscale-db")}
-            >
-              Contact Database
+            <Tabs.Tab value="sellscale-db" icon={<IconDatabase size="0.9rem" />} onClick={() => setTab("sellscale-db")}>
+              {tabHover && "Contact Database"}
             </Tabs.Tab>
           </Tooltip>
           <Tooltip label="Segments" position="bottom">
-            <Tabs.Tab
-              value="segments"
-              icon={<IconTable size="0.9rem" />}
-              onClick={() => setTab("sellscale-db")}
-            >
-              Segments
+            <Tabs.Tab value="segments" icon={<IconTable size="0.9rem" />} onClick={() => setTab("sellscale-db")}>
+              {tabHover && "Segments"}
             </Tabs.Tab>
           </Tooltip>
-          <Tabs.Tab
-            value="by-csv"
-            icon={<IconUpload size="0.9rem" />}
-            onClick={() => setTab("by-csv")}
-          >
-            Upload CSV
-          </Tabs.Tab>
+          {/* <Tabs.Tab value="by-csv" icon={<IconUpload size="0.9rem" />} onClick={() => setTab("by-csv")}> */}
+          {/*   {tabHover && "Upload CSV"} */}
+          {/* </Tabs.Tab> */}
 
-          <Tabs.Tab
-            value="linkedin-url"
-            icon={<IconBrandLinkedin size="0.9rem" />}
-            onClick={() => setTab("linkedin-url")}
-          >
-            LinkedIn URL
+          <Tabs.Tab value="linkedin-url" icon={<IconBrandLinkedin size="0.9rem" />} onClick={() => setTab("linkedin-url")}>
+            {tabHover && "LinkedIn URL"}
           </Tabs.Tab>
-          <Tabs.Tab
-            value="linkedin-sales-navigator"
-            icon={<IconBrandLinkedin size="0.9rem" />}
-            onClick={() => setTab("linkedin-sales-navigator")}
-          >
-            SalesNav Search
+          <Tabs.Tab value="linkedin-sales-navigator" icon={<IconBrandLinkedin size="0.9rem" />} onClick={() => setTab("linkedin-sales-navigator")}>
+            {tabHover && "SalesNav Search"}
+          </Tabs.Tab>
+          <Tabs.Tab value="opencv" icon={<IconPropeller size="0.9rem" />} onClick={() => setTab("opencv")}>
+            {tabHover && "OpenCV"}
+          </Tabs.Tab>
+          <Tabs.Tab value="linkedin-url-finder" icon={<IconBrandLinkedin size="0.9rem" />} onClick={() => setTab("linkedin-url-finder")}>
+            {tabHover && "Upload CSV"}
           </Tabs.Tab>
           {/* <Tabs.Tab
             value="individuals"
@@ -366,9 +251,8 @@ export default function FindContactsPage() {
           <Card maw="600px" ml="auto" mr="auto">
             <Title order={3}>Upload Prospect from One LinkedIn URL</Title>
             <Text mb="md" color="gray">
-              Upload a LinkedIn URL to add a prospect to your database. This can
-              be a Sales Navigator link (i.e. /sales) or a regular LinkedIn
-              profile link (i.e. /in).
+              Upload a LinkedIn URL to add a prospect to your database. This can be a Sales Navigator link (i.e. /sales) or a regular LinkedIn profile link
+              (i.e. /in).
             </Text>
             <LinkedInURLUpload
               afterUpload={() => {
@@ -381,54 +265,83 @@ export default function FindContactsPage() {
             />
           </Card>
         </Tabs.Panel>
-        <Tabs.Panel value="by-csv" pt="xs" style={{ position: "relative" }}>
-          <Card maw="600px" ml="auto" mr="auto">
-            <Title order={3}>Upload CSV</Title>
-            <Text mb="md" color="gray">
-              Upload a CSV file with the following columns
-              <ul>
-                <li>linkedin_url (required; if no email)</li>
-                <li>first_name (optional; required if no linkedin_url)</li>
-                <li>last_name (optional; required if no linkedin_url)</li>
-                <li>email (optional; required if no linkedin_url)</li>
-                <li>company (optional; required if no linkedin_url)</li>
-                <li>custom_data (optional)</li>
-              </ul>
-            </Text>
+        {/* <Tabs.Panel value="by-csv" pt="xs" style={{ position: "relative" }}> */}
+        {/*   <Card maw="600px" ml="auto" mr="auto"> */}
+        {/*     <Title order={3}>Upload CSV</Title> */}
+        {/*     <Text mb="md" color="gray"> */}
+        {/*       Upload a CSV file with the following columns */}
+        {/*       <ul> */}
+        {/*         <li>linkedin_url (required; if no email)</li> */}
+        {/*         <li>first_name (optional; required if no linkedin_url)</li> */}
+        {/*         <li>last_name (optional; required if no linkedin_url)</li> */}
+        {/*         <li>email (optional; required if no linkedin_url)</li> */}
+        {/*         <li>company (optional; required if no linkedin_url)</li> */}
+        {/*         <li>custom_data (optional)</li> */}
+        {/*       </ul> */}
+        {/*     </Text> */}
+        {/**/}
+        {/*     {/* Segment Selector */} 
+        {/*     <Flex align="flex-end"> */}
+        {/*       <Flex w="90%"> */}
+        {/*         <Select */}
+        {/*           mb="md" */}
+        {/*           mt="md" */}
+        {/*           w="100%" */}
+        {/*           placeholder="Select Segment" */}
+        {/*           label="(optional) Select Segment" */}
+        {/*           description="Select a segment to add these prospects to" */}
+        {/*           value={selectedSegmentId} */}
+        {/*           onChange={(value: any) => { */}
+        {/*             setSelectedSegmentId(value); */}
+        {/*           }} */}
+        {/*           data={ */}
+        {/*             segments?.map((segment: Segment) => ({ */}
+        {/*               value: segment.id, */}
+        {/*               label: segment.segment_title, */}
+        {/*             })) ?? [] */}
+        {/*           } */}
+        {/*         /> */}
+        {/*       </Flex> */}
+        {/*       <Flex w="10%" align="center" justify={"center"}> */}
+        {/*         <Tooltip label="Create a new Segment" withArrow withinPortal> */}
+        {/*           <ActionIcon */}
+        {/*             onClick={() => { */}
+        {/*               openCreateSegment(); */}
+        {/*             }} */}
+        {/*             mb="lg" */}
+        {/*             variant="filled" */}
+        {/*           > */}
+        {/*             <IconPlus size="1.5rem" /> */}
+        {/*           </ActionIcon> */}
+        {/*         </Tooltip> */}
+        {/*         <Modal opened={createSegmentOpened} onClose={closeCreateSegment} title="Create a New Segment"> */}
+        {/*           <TextInput label="Segment Title" value={createSegmentName} onChange={(e) => setCreateSegmentName(e.currentTarget.value)} /> */}
+        {/*           <Text size="xs" mt="md"> */}
+        {/*             You can add filters from the Segments page */}
+        {/*           </Text> */}
+        {/*           <Flex mt="xl" justify="flex-end"> */}
+        {/*             <Button loading={createSegmentLoading} disabled={createSegmentName.length === 0} onClick={createSegment}> */}
+        {/*               Create New Segment */}
+        {/*             </Button> */}
+        {/*           </Flex> */}
+        {/*         </Modal> */}
+        {/*       </Flex> */}
+        {/*     </Flex> */}
+        {/**/}
+        {/*     <FileDropAndPreview */}
+        {/*       segmentId={selectedSegmentId} */}
+        {/*       personaId={activePersona + ""} */}
+        {/*       onUploadSuccess={() => { */}
+        {/*         showNotification({ */}
+        {/*           title: "Success", */}
+        {/*           message: "File uploaded successfully", */}
+        {/*           color: "teal", */}
+        {/*         }); */}
+        {/*       }} */}
+        {/*     /> */}
+        {/*   </Card> */}
 
-            {/* Segment Selector */}
-            <Select
-              mb="md"
-              mt="md"
-              placeholder="Select Segment"
-              label="(optional) Select Segment"
-              description="Select a segment to add these prospects to"
-              value={selectedSegmentId}
-              onChange={(value: any) => {
-                setSelectedSegmentId(value);
-              }}
-              data={
-                segments?.map((segment: Segment) => ({
-                  value: segment.id,
-                  label: segment.segment_title,
-                })) ?? []
-              }
-            />
-
-            <FileDropAndPreview
-              segmentId={selectedSegmentId}
-              personaId={activePersona + ""}
-              onUploadSuccess={() => {
-                showNotification({
-                  title: "Success",
-                  message: "File uploaded successfully",
-                  color: "teal",
-                });
-              }}
-            />
-          </Card>
-
-          {uploads && uploads.length > 0 && (
+          {/* {uploads && uploads.length > 0 && (
             <Select
               style={{
                 position: "absolute",
@@ -449,28 +362,102 @@ export default function FindContactsPage() {
                 }
               }}
             />
-          )}
-        </Tabs.Panel>
+          )} */}
+        {/* </Tabs.Panel> */}
 
-        <Tabs.Panel
-          value="sellscale-db"
-          pt="xs"
-          style={{ position: "relative" }}
-        >
+        <Tabs.Panel value="sellscale-db" pt="xs" style={{ position: "relative" }}>
           {userToken && (
             <iframe
-              src={
-                "https://sellscale.retool.com/embedded/public/7559b6ce-6f20-4649-9240-a2dd6429323e#authToken=" +
-                userToken +
-                "&campaign_id=" +
-                activePersona
-              }
+              src={"https://sellscale.retool.com/embedded/public/7559b6ce-6f20-4649-9240-a2dd6429323e#authToken=" + userToken + "&campaign_id=" + activePersona}
               style={{ width: "100%", height: window.innerHeight + 120 }}
               frameBorder={0}
             />
           )}
         </Tabs.Panel>
 
+        <Tabs.Panel value="sellscale-db-v2" pt="xs" style={{ position: "relative", padding: "30px" }}>
+          {userToken && (
+            <PreFiltersV2EditModal innerProps={{hide_save_feature: true}} context={{}} id={''} />
+          )}
+        </Tabs.Panel>
+
+        <Tabs.Panel value="opencv" pt="xs" style={{ position: "relative" }}>
+          <OpenCV />
+        </Tabs.Panel>
+
+        <Tabs.Panel value="linkedin-url-finder" pt="xs" style={{ position: "relative" }}>
+          <Card maw="600px" ml="auto" mr="auto">
+            <Title order={3}>Upload CSV</Title>
+            <Text mb="md" color="gray">
+              <ul>
+                <li>Upload CSV or Excel file with format: name, company name, title. linkedin_url or emails are optional.</li>
+                <li>If you do not provide a LinkedIn URL, we will do our best to automatically parsed</li>
+                <li>Can add to segments automatically</li>
+                <li>Can extract emails as needed</li>
+              </ul>
+            </Text>
+
+            {/* Segment Selector */}
+            <Flex align="flex-end">
+              <Flex w="90%">
+                <Select
+                  mb="md"
+                  mt="md"
+                  w="100%"
+                  placeholder="Select Segment"
+                  label="(optional) Select Segment"
+                  description="Select a segment to add these prospects to"
+                  value={selectedSegmentId}
+                  onChange={(value: any) => {
+                    setSelectedSegmentId(value);
+                  }}
+                  data={
+                    segments?.map((segment: Segment) => ({
+                      value: segment.id,
+                      label: segment.segment_title,
+                    })) ?? []
+                  }
+                />
+              </Flex>
+              <Flex w="10%" align="center" justify={"center"}>
+                <Tooltip label="Create a new Segment" withArrow withinPortal>
+                  <ActionIcon
+                    onClick={() => {
+                      openCreateSegment();
+                    }}
+                    mb="lg"
+                    variant="filled"
+                  >
+                    <IconPlus size="1.5rem" />
+                  </ActionIcon>
+                </Tooltip>
+                <Modal opened={createSegmentOpened} onClose={closeCreateSegment} title="Create a New Segment">
+                  <TextInput label="Segment Title" value={createSegmentName} onChange={(e) => setCreateSegmentName(e.currentTarget.value)} />
+                  <Text size="xs" mt="md">
+                    You can add filters from the Segments page
+                  </Text>
+                  <Flex mt="xl" justify="flex-end">
+                    <Button loading={createSegmentLoading} disabled={createSegmentName.length === 0} onClick={createSegment}>
+                      Create New Segment
+                    </Button>
+                  </Flex>
+                </Modal>
+              </Flex>
+            </Flex>
+
+            <FileDropLinkedinURLFinderPreview
+              segmentId={selectedSegmentId}
+              personaId={activePersona + ""}
+              onUploadSuccess={() => {
+                showNotification({
+                  title: "Success",
+                  message: "File uploaded successfully",
+                  color: "teal",
+                });
+              }}
+            />
+          </Card>
+        </Tabs.Panel>
         {/* <Tabs.Panel value='csv-beta' pt='xs' style={{ position: 'relative' }}>
           <Card ml='auto' mr='auto'>
             <FileDropAndPreviewV2

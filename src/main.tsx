@@ -75,6 +75,19 @@ import CampaingCurator from "@common/campaigns/CampaignCurator";
 import CampaignWizard from "./components/CampaignWizard/CampaignWizard";
 import CampaignLandingV2 from "@pages/CampaignV2/CampaignLandingV2";
 import B2BSearch from "@pages/B2BSearch/B2bSearch";
+import Costs from "@common/internal_tools/Costs";
+import DomainManagement from "@pages/DomainManagement";
+import HomePageV2 from "@pages/Overview/HomePageV2";
+import ProspectPuller from "@pages/ProspectPuller";
+import WebsitePage from "@pages/Website/WebsitePage";
+import SelinAI from "@pages/AIBrain/SelinAI";
+import { SelixAIRetool } from "@pages/AIBrain/SelixAIRetool";
+import { SelixTaskPuppet } from "@pages/AIBrain/SelixTaskPuppet";
+import SignupPage from "@pages/SignUp";
+import SelixOnboarding from "@pages/AIBrain/SelixOnboarding";
+import DeepGram from "@common/DeepGram";
+import { isFreeUser } from "@auth/core";
+import GenerateAndSend from "@pages/GenerateAndSend";
 
 const options = {
   api_host: "https://us.i.posthog.com",
@@ -124,7 +137,7 @@ const router = sentryCreateBrowserRouter([
     children: [
       {
         path: "",
-        element: <RestrictedRoute page={<OverviewPage />} />,
+        element: <RestrictedRoute page={isFreeUser() ? <SelinAI /> : <OverviewPage />} />,
         loader: async ({ params }: { params: any }) => {
           return { prospectId: "" };
         },
@@ -204,10 +217,10 @@ const router = sentryCreateBrowserRouter([
         element: <RestrictedRoute page={<LinkedinConvoSimulatorPage />} />,
       },
       {
-        path: "setup/:channelType?/:tabId?",
+        path: "setup/:channelType?/:campaign_id?",
         element: <RestrictedRoute page={<ChannelSetupPage />} />,
         loader: async ({ params }: { params: any }) => {
-          return { channelType: params.channelType, tabId: params.tabId };
+          return { channelType: params.channelType, tabId: params.campaign_id };
         },
       },
       {
@@ -306,10 +319,21 @@ const router = sentryCreateBrowserRouter([
         element: <LoginPage />,
       },
       {
+        path: "signup",
+        element: <SignupPage />,
+      },
+      {
         path: "projectsetup",
         element: <SetupPersonaCard />,
       },
-
+      {
+        path: "selix_ai",
+        element: <RestrictedRoute page={<SelixAIRetool />} />,
+      },
+      {
+        path: "selix_old",
+        element: <RestrictedRoute page={<SelixTaskPuppet />} />,
+      },
       {
         path: "all/inboxes",
         element: <RestrictedRoute page={<InboxPage all />} />,
@@ -317,6 +341,10 @@ const router = sentryCreateBrowserRouter([
       {
         path: "prospects/:prospectId",
         element: <RestrictedRoute page={<ProspectDetailPage />} />,
+      },
+      {
+        path: "costs",
+        element: <RestrictedRoute page={<Costs />} />,
       },
       {
         path: "all/contacts/:prospectId?",
@@ -545,6 +573,34 @@ const router = sentryCreateBrowserRouter([
         path: "/b2b_search",
         element: <B2BSearch />,
       },
+      {
+        path: "/domains",
+        element: <DomainManagement />,
+      },
+      {
+        path: "/home2",
+        element: <HomePageV2 />,
+      },
+      {
+        path: "/prospect_puller",
+        element: <ProspectPuller />,
+      },
+      {
+        path: "/website",
+        element: <WebsitePage />,
+      },
+      {
+        path: "/selix",
+        element: <SelinAI />,
+      },
+      {
+        path: "/selix_onboarding",
+        element: <SelixOnboarding />,
+      },
+      // {
+      //   path: "/generate",
+      //   element: <GenerateAndSend />,
+      // },
     ],
   },
 ]);

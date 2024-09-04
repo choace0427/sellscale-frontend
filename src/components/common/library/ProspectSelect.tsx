@@ -1,4 +1,4 @@
-import { userTokenState } from "@atoms/userAtoms";
+import { campaignContactsState, userTokenState } from "@atoms/userAtoms";
 import {
   createStyles,
   useMantineTheme,
@@ -11,12 +11,13 @@ import {
   Box,
   LoadingOverlay,
   TextInput,
+  Avatar,
 } from "@mantine/core";
 import { valueToColor } from "@utils/general";
 import { getArchetypeProspects } from "@utils/requests/getArchetypeProspects";
 import { useState, useEffect, forwardRef } from "react";
 import { useRecoilState, useRecoilValue } from "recoil";
-import { ProspectShallow } from "src";
+import { Prospect, ProspectShallow } from "src";
 import ModalSelector from "./ModalSelector";
 import {
   ICPFitPillOnly,
@@ -24,9 +25,12 @@ import {
 } from "@common/pipeline/ICPFitAndReason";
 import { IconSearch } from "@tabler/icons-react";
 import { useDebouncedState } from "@mantine/hooks";
-import _ from "lodash";
+import _, { result } from "lodash";
 import ProspectDetailsDrawer from "@drawers/ProspectDetailsDrawer";
-import { prospectDrawerOpenState, prospectDrawerIdState } from "@atoms/prospectAtoms";
+import {
+  prospectDrawerOpenState,
+  prospectDrawerIdState,
+} from "@atoms/prospectAtoms";
 
 interface ProspectItemProps extends React.ComponentPropsWithoutRef<"div"> {
   label: string;
@@ -161,6 +165,8 @@ export default function ProspectSelect(props: {
   includeDrawer?: boolean;
   onFinishLoading?: (prospects: ProspectShallow[]) => void;
   selectedProspect?: number;
+  isSequenceV2?: boolean;
+  prospects?: Prospect[];
 }) {
   const theme = useMantineTheme();
   const userToken = useRecoilValue(userTokenState);
@@ -171,8 +177,15 @@ export default function ProspectSelect(props: {
   const [searchingProspects, setSearchingProspects] = useState<boolean>(false);
   const [searchQuery, setSearchQuery] = useDebouncedState<string>("", 400);
 
-  const [prospectDrawerOpened, setProspectDrawerOpened] = useRecoilState(prospectDrawerOpenState);
-  const [prospectDrawerId, setProspectDrawerId] = useRecoilState(prospectDrawerIdState);
+  const [prospectDrawerOpened, setProspectDrawerOpened] = useRecoilState(
+    prospectDrawerOpenState
+  );
+  const [prospectDrawerId, setProspectDrawerId] = useRecoilState(
+    prospectDrawerIdState
+  );
+  const [campaignContacts, setCampaignContacts] = useRecoilState(
+    campaignContactsState
+  );
 
   const searchProspects = async () => {
     if (lastTimeRun > Date.now() - 1000) {
@@ -187,18 +200,24 @@ export default function ProspectSelect(props: {
       searchQuery
     );
     if (result.status === "success") {
-      const resultProspects = result.data as ProspectShallow[];
-      resultProspects.sort((a, b) => {
+      try {
+        setCampaignContacts(result.data);
+      } catch (e) {
+        console.error(e);
+      }
+      let resultProspects = result.data as ProspectShallow[];
+      const sortedProspects = [...resultProspects].sort((a, b) => {
         if (a.icp_fit_score === b.icp_fit_score) {
           return a.full_name.localeCompare(b.full_name);
         }
         return b.icp_fit_score - a.icp_fit_score;
       });
+      resultProspects = sortedProspects;
 
       if (props.autoSelect && !selectedProspect) {
         const foundProspect = resultProspects.find(
-            (prospect) => prospect.id === props.selectedProspect
-          )
+          (prospect) => prospect.id === props.selectedProspect
+        );
         if (props.selectedProspect && props.selectedProspect !== -1) {
           setSelectedProspect(foundProspect);
           props.onChange(foundProspect);
@@ -215,18 +234,67 @@ export default function ProspectSelect(props: {
   };
 
   useEffect(() => {
-    setLoadingProspects(true);
-    searchProspects().then((res) => {
-      setLoadingProspects(false);
-    });
-  }, [searchQuery]);
+    if (props.personaId !== -1) {
+      setLoadingProspects(true);
+
+      if (!props.prospects || props.prospects.length === 0) {
+        searchProspects().then((res) => {
+          setLoadingProspects(false);
+        });
+      } else {
+        setLoadingProspects(false);
+      }
+    }
+  }, [searchQuery, props.personaId]);
+
+  useEffect(() => {
+    let resultProspects = campaignContacts;
+
+    if (Array.isArray(resultProspects)) {
+      const foundProspect = resultProspects.find(
+        (prospect) => prospect.id === props.selectedProspect
+      );
+      if (foundProspect) {
+        setSelectedProspect(foundProspect as ProspectShallow);
+      }
+    }
+  }, [props.selectedProspect]);
 
   return (
     <>
       <ModalSelector
         selector={{
           content: (
-            <Text>{selectedProspect?.full_name || "Select Prospect"}</Text>
+            <Text>
+              {loadingProspects ? (
+                <>
+                  <Loader size="xs" /> Loading prospects...
+                </>
+              ) : (
+                <Flex
+                  align={"center"}
+                  justify={"space-between"}
+                  style={{
+                    width: "fit-content",
+                    maxWidth: "400px",
+                    overflow: "hidden",
+                  }}
+                  gap={"4px"}
+                >
+                  <Text size={"xs"} color="#37414E">
+                    Prospect:
+                  </Text>
+                  <Avatar
+                    src={selectedProspect?.img_url}
+                    radius={"xl"}
+                    size={"sm"}
+                  />
+                  <Text size={"xs"} color={"#37414E"}>
+                    {`${selectedProspect?.first_name} ${selectedProspect?.last_name} | ${selectedProspect?.title}, ${selectedProspect?.company}`}
+                  </Text>
+                </Flex>
+              )}
+            </Text>
           ),
           buttonProps: {
             variant: "outline",

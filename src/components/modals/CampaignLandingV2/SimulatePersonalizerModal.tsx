@@ -20,6 +20,7 @@ export default function SimulatepersonalizerModal({
   const [emailBody, setEmailBody] = useState("");
   const [overrideEmailBody, setOverrideEmailBody] = useState<string | undefined>(undefined); 
   const [rawEmailBody, setRawEmailBody] = useState<JSONContent | undefined>(undefined);
+  const [sequenceId, setSequenceId] = useState<number | undefined>(undefined);
   const sequences = innerProps?.sequences?.flatMap((sequenceGroup: any[]) => {
     const descriptions = new Set();
     return sequenceGroup.filter((sequence: any) => {
@@ -30,6 +31,11 @@ export default function SimulatepersonalizerModal({
       return false;
     }).map((sequence: any) => sequence.description);
   });
+  console.log('sequences are', innerProps.sequences)
+  //get the titels of the sequences
+  const sequenceTitles = innerProps?.sequences?.flatMap((sequenceGroup: any[]) => {
+    return sequenceGroup.map((sequence: any) => sequence.title);
+  });
   const [originalEmailBody, setOriginalEmailBody] = useState<string | undefined>(undefined);
 
   const handleSimulate = async () => {
@@ -38,8 +44,8 @@ export default function SimulatepersonalizerModal({
     setSimulate(true);
     try {
       const prospectId = innerProps.prospectId; // Replace with actual prospectId
-      const response = await researcher.getPersonalization(userToken, Number(prospectId), emailBody);
-      setOverrideEmailBody(response.personalized_email.replace(/\n/g, "<br/>"));
+      const response = await researcher.getPersonalization(userToken, Number(prospectId), sequenceId || 0);
+      setOverrideEmailBody(response.personalized_email);
     } catch (error) {
       console.error("Error during personalization:", error);
     } finally {
@@ -85,10 +91,11 @@ export default function SimulatepersonalizerModal({
             {sequences?.length > 0 && !simulate && (
               <Select
                 placeholder="Select template"
-                data={sequences.map((sequence: any, index: any) => ({ value: index, label: `Sequence ${index + 1}` }))}
+                data={sequences.map((sequence: any, index: any) => ({ value: index, label: sequenceTitles[index] }))}
                 onChange={(value: any) => {
                   setOverrideEmailBody(sequences[value]);
                   setEmailBody(sequences[value]);
+                  setSequenceId(innerProps.sequences[value][0]?.id); // Set the sequenceId here
                 }}
                 ></Select>
             )}

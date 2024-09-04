@@ -146,6 +146,7 @@ const csvHeaders = [
   { label: "Linkedin URL", key: "linkedin_url" },
   { label: "Full name", key: "full_name" },
   { label: "ID", key: "id" },
+  { label: "Email", key: "email" },
 ];
 
 type ICPFiltersDashboardPropsType = {
@@ -437,10 +438,11 @@ const ICPFiltersDashboard = (props: ICPFiltersDashboardPropsType) => {
     let filteredProspects = icpProspects;
 
     filteredProspects = filteredProspects.filter((prospect) => {
+      const searchTerm = globalSearch.toLowerCase();
       return (
-        prospect.full_name?.includes(globalSearch) ||
-        prospect.title?.includes(globalSearch) ||
-        prospect.company?.includes(globalSearch)
+        prospect.full_name?.toLowerCase().includes(searchTerm) ||
+        prospect.title?.toLowerCase().includes(searchTerm) ||
+        prospect.company?.toLowerCase().includes(searchTerm)
       );
     });
 
@@ -556,6 +558,7 @@ const ICPFiltersDashboard = (props: ICPFiltersDashboardPropsType) => {
         linkedin_url: i.linkedin_url,
         full_name: i.full_name,
         id: i.id,
+        email: i.email,
       };
     });
 
@@ -792,18 +795,43 @@ const ICPFiltersDashboard = (props: ICPFiltersDashboardPropsType) => {
               </Flex>
             </Flex>
 
-            <Button
-              ml="auto"
-              size="sm"
-              disabled={!currentProject?.id}
-              leftIcon={<IconPlus size="0.8rem" />}
-              color={"blue"}
-              onClick={() => {
-                navigateToPage(navigate, "/contacts/overview");
-              }}
-            >
-              Add Prospects
-            </Button>
+            <Flex>
+              <Tooltip label="Upload custom data points to your prospects.">
+                <Button
+                  size="xs"
+                  onClick={customPointHandlers.open}
+                  color="gray"
+                  variant="outline"
+                >
+                  <IconMagnet size={16} />
+                </Button>
+              </Tooltip>
+
+              <Modal
+                opened={openedCustomPoint}
+                onClose={customPointHandlers.close}
+                size="xl"
+                title="Custom Data Point Importer"
+              >
+                <Text size="xs" color="gray">
+                  Upload custom data points to your prospects.
+                </Text>
+                <CustomResearchPointCard />
+              </Modal>
+
+              <Button
+                ml="xs"
+                size="sm"
+                disabled={!currentProject?.id}
+                leftIcon={<IconPlus size="0.8rem" />}
+                color={"blue"}
+                onClick={() => {
+                  navigateToPage(navigate, "/contacts/overview");
+                }}
+              >
+                Add Prospects
+              </Button>
+            </Flex>
           </Flex>
           {Object.keys(selectedRows).length > 0 && (
             <Flex justify={"flex-end"} align={"center"} gap={"xs"} mt={"sm"}>
@@ -891,6 +919,7 @@ const ICPFiltersDashboard = (props: ICPFiltersDashboardPropsType) => {
                     })}
                   >
                     <SidebarHeader
+                      refresh={refetch}
                       sideBarVisible={sideBarVisible}
                       toggleSideBar={toggleSideBar}
                       isTesting={isTesting}

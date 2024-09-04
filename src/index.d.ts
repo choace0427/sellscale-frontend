@@ -221,6 +221,7 @@ export interface Prospect {
   hidden_reason: string;
   demo_date: any;
   icp_fit_score: number;
+  icp_prospect_fit_score: number;
   icp_fit_reason: string;
   icp_fit_error: string;
   archetype_name: string;
@@ -232,6 +233,19 @@ export interface Prospect {
   matched_filter_words?: string[];
   matched_filters?: string[];
   meta_data?: Record<string, any>;
+
+  icp_company_fit_score: number;
+  // putting string for now
+  icp_fit_reason_v2: ICPFitReasonV2;
+  icp_company_fit_reason: ICPFitReasonV2;
+}
+
+export interface ICPFitReasonV2 {
+  [key: string]: {
+    answer: string,
+    reasoning: string,
+    source: string,
+  }
 }
 
 export interface ProspectShallow {
@@ -241,6 +255,8 @@ export interface ProspectShallow {
   last_name: string;
   company: string;
   title: string;
+  client_sdr_name?: string;
+  client_sdr_img_url?: string;
   email: string;
   icp_fit_score: number;
   icp_fit_reason: string;
@@ -275,6 +291,10 @@ export interface ProspectShallow {
   merge_account_id?: string;
   merge_opportunity_id?: string;
   merge_lead_id?: string;
+  avatar?: string;
+  approved_outreach_message_id?: number;
+  approved_prospect_email_id?: number;
+  generatedText?: string;
 }
 
 export interface ProspectICP {
@@ -339,6 +359,10 @@ export interface ProspectDetails {
   };
   referrals: { id: number; full_name: string }[];
   referred: { id: number; full_name: string }[];
+  phone: {
+    phone_number?: string,
+    reveal_phone_number: boolean,
+  }
 }
 
 export interface DemoFeedback {
@@ -383,6 +407,16 @@ export interface CTA {
   auto_mark_as_scheduling_on_acceptance: boolean;
 }
 
+
+export interface DefaultVoices {
+  id: number,
+  count_ctas: number,
+  count_bumps: number,
+  title: string,
+  description: string,
+}
+
+
 export interface Archetype {
   active: boolean;
   archetype: string;
@@ -407,6 +441,8 @@ export interface Archetype {
 
 export interface PersonaOverview {
   active: boolean;
+  ai_researcher_id?: number;
+  ai_voice_id?: number;
   id: number;
   name: string;
   num_prospects: number;
@@ -428,6 +464,8 @@ export interface PersonaOverview {
   cta_framework_persona: string;
   cta_framework_action: string;
   use_cases: string;
+  email_seq_generation_in_progress?: boolean;
+  li_seq_generation_in_progress?: boolean;
   filters: string;
   lookalike_profile_1: string;
   lookalike_profile_2: string;
@@ -470,6 +508,7 @@ export interface LinkedInMessage {
   initial_message_research_points: string[];
   initial_message_stack_ranked_config_id: number;
   initial_message_stack_ranked_config_name: string;
+  is_sending?: boolean;
 }
 
 export interface EmailThread {
@@ -629,6 +668,7 @@ export type SubjectLineTemplate = {
   times_used: number;
   times_accepted: number;
   sellscale_generated: boolean;
+  is_magic_subject_line: boolean | null;
 };
 
 export type SpamScoreResults = {
@@ -895,3 +935,48 @@ export type ClientSyncCRM = {
   account_sync: boolean;
   opportunity_sync: boolean;
 };
+
+export interface Domain {
+  aws: boolean;
+  aws_amplify_app_id: string;
+  aws_autorenew_enabled: boolean;
+  aws_domain_registration_job_id: string;
+  aws_domain_registration_status: string;
+  aws_hosted_zone_id: string;
+  dkim_record: string;
+  dkim_record_valid: boolean;
+  dmarc_record: string;
+  dmarc_record_valid: boolean;
+  domain: string;
+  domain_setup_tracker: any;
+  email_banks: EmailBankItem[] | null;
+  forward_to: string;
+  forwarding_enabled: boolean;
+  id: number;
+  last_refreshed: string;
+  spf_record: string;
+  spf_record_valid: boolean;
+  active: boolean;
+}
+
+export interface EmailBankItem {
+  active: boolean;
+  daily_limit: number;
+  daily_sent_count: number;
+  domain_details: {
+    dkim_record_valid: boolean;
+    dmarc_record_valid: boolean;
+    forwarding_enabled: boolean;
+    id: number;
+    spf_record_valid: boolean;
+  };
+  email_address: string;
+  email_type: "ANCHOR" | "SELLSCALE" | "ALIAS";
+  id: number;
+  nylas_account_id: string;
+  nylas_active: boolean;
+  nylas_auth_code: string;
+  smartlead_reputation: number;
+  smartlead_warmup_enabled: boolean;
+  total_sent_count: number;
+}
