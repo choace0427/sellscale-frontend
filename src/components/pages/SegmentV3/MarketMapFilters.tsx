@@ -34,7 +34,12 @@ import { userTokenState } from "@atoms/userAtoms";
 import { API_URL } from "@constants/data";
 import { useQueryClient } from "@tanstack/react-query";
 import { showNotification } from "@mantine/notifications";
-import { IconSparkles, IconTrash, IconUser } from "@tabler/icons-react";
+import {
+  IconChevronLeft,
+  IconSparkles,
+  IconTrash,
+  IconUser,
+} from "@tabler/icons-react";
 
 interface MarketMapFiltersProps {
   prospects: Prospect[];
@@ -53,6 +58,7 @@ interface MarketMapFiltersProps {
   setViewMode: React.Dispatch<React.SetStateAction<ViewMode>>;
   setProgrammaticUpdates: React.Dispatch<React.SetStateAction<Set<number>>>;
   programmaticUpdates: Set<number>;
+  setCollapseFilters: React.Dispatch<React.SetStateAction<boolean>>;
 }
 
 const MarketMapFilters = function ({
@@ -70,6 +76,7 @@ const MarketMapFilters = function ({
   setViewMode,
   setProgrammaticUpdates,
   programmaticUpdates,
+  setCollapseFilters,
 }: MarketMapFiltersProps) {
   const userToken = useRecoilValue(userTokenState);
 
@@ -272,21 +279,27 @@ const MarketMapFilters = function ({
 
   const queryClient = useQueryClient();
 
-  const onAddIndividualAIFilters = (
+  const onAddIndividualAIFilters = async (
     title: string,
     prompt: string,
     use_linkedin: boolean
   ) => {
     const key = "aiind_" + title.toLowerCase().split(" ").join("_");
-    setIndividualAIFilters([
+    const newIndividualAIFilters = [
       ...individual_ai_filters,
-      { key: key, title: title, prompt: prompt, use_linkedin: use_linkedin },
-    ]);
+      { key: key, title: title, prompt: prompt, use_linkedin: use_linkedin, relevancy: "" },
+    ];
+    let newDealbreaker = [...dealbreakers];
+    let newIndividualAIPersonalizer = [...individual_personalizers];
+
+    setIndividualAIFilters(newIndividualAIFilters);
 
     if (individual_ai_dealbreaker) {
+      newDealbreaker = [...dealbreakers, key];
       setDealBreakers([...dealbreakers, key]);
     }
     if (individual_ai_personalizer) {
+      newIndividualAIPersonalizer = [...individual_personalizers, key];
       setIndividualPersonalizers([...individual_personalizers, key]);
     }
 
@@ -294,23 +307,38 @@ const MarketMapFilters = function ({
     setIndividualAIPrompt("");
     setIndividualAIDealbreaker(false);
     setIndividualAIPersonalizer(false);
+
+    await addAIFilter(
+      company_ai_filters,
+      newIndividualAIFilters,
+      newDealbreaker,
+      company_personalizers,
+      newIndividualAIPersonalizer
+    );
   };
 
-  const onAddCompanyAIFilters = (
+  const onAddCompanyAIFilters = async (
     title: string,
     prompt: string,
     use_linkedin: boolean
   ) => {
     const key = "aicomp_" + title.toLowerCase().split(" ").join("_");
-    setCompanyAIFilters([
+    const newCompanyAIFilters = [
       ...company_ai_filters,
-      { key: key, title: title, prompt: prompt, use_linkedin: use_linkedin },
-    ]);
+      { key: key, title: title, prompt: prompt, use_linkedin: use_linkedin, relevancy: "" },
+    ];
+
+    let newDealbreaker = [...dealbreakers];
+    let newCompanyAIPersonalizer = [...individual_personalizers];
+
+    setCompanyAIFilters(newCompanyAIFilters);
 
     if (company_ai_dealbreaker) {
+      newDealbreaker = [...dealbreakers, key];
       setDealBreakers([...dealbreakers, key]);
     }
     if (company_ai_personalizer) {
+      newCompanyAIPersonalizer = [...company_personalizers, key];
       setCompanyPersonalizers([...company_personalizers, key]);
     }
 
@@ -318,6 +346,14 @@ const MarketMapFilters = function ({
     setCompanyAIPrompt("");
     setCompanyAIDealbreaker(false);
     setCompanyAIPersonalizer(false);
+
+    await addAIFilter(
+      newCompanyAIFilters,
+      individual_ai_filters,
+      newDealbreaker,
+      newCompanyAIPersonalizer,
+      individual_personalizers
+    );
   };
 
   const titleOptions = [
@@ -329,6 +365,48 @@ const MarketMapFilters = function ({
   const companyOptions = [...new Set(prospects.map((x) => x.company))].filter(
     (x) => x
   );
+
+  const addAIFilter = async (
+    companyAIFilters: AIFilters[],
+    individualAIFilters: AIFilters[],
+    dealbreakers: string[],
+    companyPersonalizers: string[],
+    individualPersonalizers: string[]
+  ) => {
+    const response = await fetch(`${API_URL}/icp_scoring/add_ai_filter`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${userToken}`,
+      },
+      body: JSON.stringify({
+        segment_id: segment_id,
+        individual_personalizers: individualPersonalizers,
+        company_personalizers: companyPersonalizers,
+        dealbreakers: dealbreakers,
+        individual_ai_filters: individualAIFilters,
+        compay_ai_filters: companyAIFilters,
+      }),
+    });
+
+    if (response.status === 200) {
+      await queryClient.invalidateQueries(["segmentProspects", segment_id]);
+      await queryClient.invalidateQueries(["icpScoringRuleset", segment_id]);
+      setScoreLoading(false);
+      showNotification({
+        title: "Success",
+        message: "Successfully added AI Filter to the ICP ruleset.",
+        color: "blue",
+      });
+    } else {
+      setScoreLoading(false);
+      showNotification({
+        title: "Error",
+        message: "Failed to add AI filters to the ICP ruleset",
+        color: "red",
+      });
+    }
+  };
 
   const scoreMarketMap = async () => {
     setScoreLoading(true);
@@ -438,6 +516,9 @@ const MarketMapFilters = function ({
             }}
             checked={viewMode === "ACCOUNT"}
           />
+          <ActionIcon onClick={() => setCollapseFilters(true)}>
+            <IconChevronLeft />
+          </ActionIcon>
         </Flex>
       </Title>
       {viewMode === "CONTACT" ? (
@@ -484,8 +565,8 @@ const MarketMapFilters = function ({
           {isScoring && isScoring > 0 ? (
             <Progress
               color={"grape"}
-              value={(isScoring - programmaticUpdates.size) / isScoring * 100}
-              label={"testing"}
+              value={((isScoring - programmaticUpdates.size) / isScoring) * 100}
+              label={"scoring"}
             />
           ) : (
             <></>
@@ -514,7 +595,7 @@ const MarketMapFilters = function ({
                       }
                     />
                     <Textarea
-                      placeholder="Enter AI prompt here. A question to score your list."
+                      placeholder="Enter AI prompt here. A question to score your list. You must include [[prospect]] into your prompt."
                       value={individual_ai_prompt}
                       label="AI Filter"
                       withAsterisk
@@ -547,8 +628,12 @@ const MarketMapFilters = function ({
                       }
                     />
                     <Button
-                      disabled={!individual_ai_title || !individual_ai_prompt}
-                      onClick={() => {
+                      disabled={
+                        !individual_ai_title ||
+                        !individual_ai_prompt ||
+                        !individual_ai_prompt.includes("[[prospect]]")
+                      }
+                      onClick={async () => {
                         const key =
                           "aiind_" +
                           individual_ai_title
@@ -566,7 +651,7 @@ const MarketMapFilters = function ({
                           ]);
                           return [...set];
                         });
-                        onAddIndividualAIFilters(
+                        await onAddIndividualAIFilters(
                           individual_ai_title,
                           individual_ai_prompt,
                           individual_ai_use_linkedin
@@ -608,7 +693,13 @@ const MarketMapFilters = function ({
                                     Individual
                                   </Badge>
                                   <ActionIcon
-                                    onClick={() => {
+                                    onClick={async () => {
+                                      let newIndividualAIFilters: AIFilters[] =
+                                        [];
+                                      let newDealbreaker: string[] = [];
+                                      let newIndividualAIPersonalizer: string[] =
+                                        [];
+
                                       setHeaderSet((prevState) => {
                                         prevState.delete(aiFilter.key);
                                         return new Set([...prevState]);
@@ -618,20 +709,41 @@ const MarketMapFilters = function ({
                                           (item) => item.key !== aiFilter.key
                                         )
                                       );
-                                      setDealBreakers((prevState) =>
-                                        prevState.filter(
+                                      setDealBreakers((prevState) => {
+                                        newDealbreaker = prevState.filter(
                                           (x) => x !== aiFilter.key
-                                        )
-                                      );
-                                      setIndividualPersonalizers((prevState) =>
-                                        prevState.filter(
+                                        );
+                                        return prevState.filter(
                                           (x) => x !== aiFilter.key
-                                        )
+                                        );
+                                      });
+                                      setIndividualPersonalizers(
+                                        (prevState) => {
+                                          newIndividualAIPersonalizer =
+                                            prevState.filter(
+                                              (x) => x !== aiFilter.key
+                                            );
+                                          return prevState.filter(
+                                            (x) => x !== aiFilter.key
+                                          );
+                                        }
                                       );
-                                      setIndividualAIFilters((prevState) =>
-                                        prevState.filter(
+                                      setIndividualAIFilters((prevState) => {
+                                        newIndividualAIFilters =
+                                          prevState.filter(
+                                            (item) => item.key !== aiFilter.key
+                                          );
+                                        return prevState.filter(
                                           (item) => item.key !== aiFilter.key
-                                        )
+                                        );
+                                      });
+
+                                      await addAIFilter(
+                                        company_ai_filters,
+                                        newIndividualAIFilters,
+                                        newDealbreaker,
+                                        company_personalizers,
+                                        newIndividualAIPersonalizer
                                       );
                                     }}
                                   >
@@ -1145,7 +1257,7 @@ const MarketMapFilters = function ({
           {isScoring && isScoring > 0 ? (
             <Progress
               color={"grape"}
-              value={(isScoring - programmaticUpdates.size) / isScoring * 100}
+              value={((isScoring - programmaticUpdates.size) / isScoring) * 100}
               label={"testing"}
             />
           ) : (
@@ -1175,7 +1287,7 @@ const MarketMapFilters = function ({
                       }
                     />
                     <Textarea
-                      placeholder="Enter AI prompt here. A question to score your list."
+                      placeholder="Enter AI prompt here. A question to score your list. You must include [[company]] into your prompt"
                       value={company_ai_prompt}
                       label="AI Filter"
                       withAsterisk
@@ -1208,8 +1320,12 @@ const MarketMapFilters = function ({
                       }
                     />
                     <Button
-                      disabled={!company_ai_title || !company_ai_prompt}
-                      onClick={() => {
+                      disabled={
+                        !company_ai_title ||
+                        !company_ai_prompt ||
+                        !company_ai_prompt.includes("[[company]]")
+                      }
+                      onClick={async () => {
                         const key =
                           "aicomp_" +
                           company_ai_title.toLowerCase().split(" ").join("_");
@@ -1224,7 +1340,7 @@ const MarketMapFilters = function ({
                           ]);
                           return [...set];
                         });
-                        onAddCompanyAIFilters(
+                        await onAddCompanyAIFilters(
                           company_ai_title,
                           company_ai_prompt,
                           company_ai_use_linkedin
@@ -1262,7 +1378,12 @@ const MarketMapFilters = function ({
                                     Company
                                   </Badge>
                                   <ActionIcon
-                                    onClick={() => {
+                                    onClick={async () => {
+                                      let newCompanyAIFilters: AIFilters[] = [];
+                                      let newDealbreaker: string[] = [];
+                                      let newCompanyAIPersonalizer: string[] =
+                                        [];
+
                                       setHeaderSet((prevState) => {
                                         prevState.delete(aiFilter.key);
                                         return new Set([...prevState]);
@@ -1272,20 +1393,39 @@ const MarketMapFilters = function ({
                                           (item) => item.key !== aiFilter.key
                                         )
                                       );
-                                      setDealBreakers((prevState) =>
-                                        prevState.filter(
+                                      setDealBreakers((prevState) => {
+                                        newDealbreaker = prevState.filter(
                                           (x) => x !== aiFilter.key
-                                        )
-                                      );
-                                      setCompanyPersonalizers((prevState) =>
-                                        prevState.filter(
+                                        );
+                                        return prevState.filter(
                                           (x) => x !== aiFilter.key
-                                        )
-                                      );
-                                      setCompanyAIFilters((prevState) =>
-                                        prevState.filter(
+                                        );
+                                      });
+                                      setCompanyPersonalizers((prevState) => {
+                                        newCompanyAIPersonalizer =
+                                          prevState.filter(
+                                            (x) => x !== aiFilter.key
+                                          );
+                                        return prevState.filter(
+                                          (x) => x !== aiFilter.key
+                                        );
+                                      });
+                                      setCompanyAIFilters((prevState) => {
+                                        newCompanyAIFilters = prevState.filter(
                                           (item) => item.key !== aiFilter.key
-                                        )
+                                        );
+
+                                        return prevState.filter(
+                                          (item) => item.key !== aiFilter.key
+                                        );
+                                      });
+
+                                      await addAIFilter(
+                                        newCompanyAIFilters,
+                                        individual_ai_filters,
+                                        newDealbreaker,
+                                        newCompanyAIPersonalizer,
+                                        individual_personalizers
                                       );
                                     }}
                                   >

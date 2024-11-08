@@ -1,4 +1,5 @@
 import {
+  ActionIcon,
   Anchor,
   Badge,
   Box,
@@ -38,7 +39,7 @@ import { CSVLink } from "react-csv";
 import CustomResearchPointCard from "@common/persona/CustomResearchPointCard";
 import { useDisclosure } from "@mantine/hooks";
 import { MantineReactTable, useMantineReactTable } from "mantine-react-table";
-import { IconBrandLinkedin } from "@tabler/icons";
+import { IconBrandLinkedin, IconChevronRight } from "@tabler/icons";
 
 interface ContactAccountFilterModalProps {
   showContactAccountFilterModal: boolean;
@@ -59,8 +60,8 @@ const ArchetypeFilterModal = function ({
     <Modal
       onClose={() => setShowContactAccountFilterModal(false)}
       opened={showContactAccountFilterModal}
-      size={"90%"}
-      style={{ maxHeight: "700px", minWidth: "2000px" }}
+      size={"100%"}
+      style={{ maxHeight: "700px", minWidth: "1450px" }}
       zIndex={10}
       title={
         <Flex justify={"space-between"} gap={"36px"}>
@@ -82,6 +83,8 @@ export const ArchetypeFilters = function ({
 }: {
   hideFeature?: boolean; // for selix
 }) {
+  const isSelix: boolean = hideFeature;
+
   const userToken = useRecoilValue(userTokenState);
 
   const [prospects, setProspects] = useState<Prospect[]>([]);
@@ -92,6 +95,8 @@ export const ArchetypeFilters = function ({
   const [filteredWords, setFilteredWords] = useState<string>("");
 
   const [displayScore, setDisplayScore] = useState<string | null>("5");
+
+  const [collapseFilters, setCollapseFilters] = useState<boolean>(false);
 
   const [programmaticUpdateList, setProgrammaticUpdateList] = useState<
     Set<number>
@@ -109,6 +114,7 @@ export const ArchetypeFilters = function ({
       { key: "title", title: "Title" },
       { key: "company", title: "Company" },
       { key: "linkedin_url", title: "Linkedin URL" },
+      { key: "email", title: "Email" },
       { key: "overall_status", title: "Status" },
     ]
   );
@@ -119,6 +125,7 @@ export const ArchetypeFilters = function ({
     "company",
     "icp_fit_score",
     "linkedin_url",
+    "email",
     "overall_status",
   ];
 
@@ -155,13 +162,13 @@ export const ArchetypeFilters = function ({
       const list: number[] = data.update;
 
       const newProgrammaticUpdateList = new Set(programmaticUpdateList);
-      
-      list.forEach(i => {
+
+      list.forEach((i) => {
         newProgrammaticUpdateList.delete(i);
-      })
-      
+      });
+
       setProgrammaticUpdateList(newProgrammaticUpdateList);
-    })
+    });
 
     return () => {
       socket.off("update_prospect_list");
@@ -221,6 +228,7 @@ export const ArchetypeFilters = function ({
         { key: "title", title: "Title" },
         { key: "company", title: "Company" },
         { key: "linkedin_url", title: "Linkedin URL" },
+        { key: "email", title: "Email" },
         { key: "overall_status", title: "Status" },
       ];
 
@@ -549,6 +557,8 @@ export const ArchetypeFilters = function ({
       }),
   ];
 
+  console.log("propsects: ", prospects);
+
   const generatedData = useMemo(() => {
     return displayProspects.map((prospect) => {
       const p = {
@@ -570,7 +580,7 @@ export const ArchetypeFilters = function ({
 
       return row;
     });
-  }, [displayProspects, contactTableHeaders]);
+  }, [displayProspects, contactTableHeaders, icp_scoring_ruleset]);
 
   const generatedColumns = useMemo(() => {
     if (!icp_scoring_ruleset_typed) {
@@ -678,10 +688,10 @@ export const ArchetypeFilters = function ({
             const keyType = item.key as keyof typeof p;
             if (item.key === "icp_fit_score") {
               const trueScore =
-                prospect.icp_fit_reason_v2 &&
-                Object.keys(prospect.icp_fit_reason_v2).length > 0 &&
-                prospect.icp_company_fit_reason &&
-                Object.keys(prospect.icp_company_fit_reason).length > 0;
+                (prospect.icp_fit_reason_v2 &&
+                  Object.keys(prospect.icp_fit_reason_v2).length > 0) ||
+                (prospect.icp_company_fit_reason &&
+                  Object.keys(prospect.icp_company_fit_reason).length > 0);
 
               let humanReadableScore = "Not Scored";
 
@@ -753,12 +763,7 @@ export const ArchetypeFilters = function ({
                             .split("_")
                             .join(" ");
 
-                          if (
-                            section.answer === "NO" &&
-                            icp_scoring_ruleset_typed.dealbreakers?.includes(
-                              key
-                            )
-                          ) {
+                          if (section.answer === "NO") {
                             return (
                               <Flex key={key} gap={"4px"}>
                                 <Text>❌</Text>
@@ -812,12 +817,7 @@ export const ArchetypeFilters = function ({
                               .split("_")
                               .join(" ");
 
-                            if (
-                              section.answer === "NO" &&
-                              icp_scoring_ruleset_typed.dealbreakers?.includes(
-                                key
-                              )
-                            ) {
+                            if (section.answer === "NO") {
                               return (
                                 <Flex key={key} gap={"4px"}>
                                   <Text>❌</Text>
@@ -858,6 +858,90 @@ export const ArchetypeFilters = function ({
                             return <></>;
                           }
                         )}
+                      {icp_scoring_ruleset_typed &&
+                        icp_scoring_ruleset_typed.individual_ai_filters &&
+                        icp_scoring_ruleset_typed.individual_ai_filters
+                          .filter((item) => {
+                            if (prospect.icp_fit_reason_v2) {
+                              return (
+                                !(item.key in prospect.icp_fit_reason_v2) ||
+                                prospect.icp_fit_reason_v2[item.key].answer ===
+                                  "LOADING"
+                              );
+                            }
+
+                            return true;
+                          })
+                          .map((item) => {
+                            const title = item.key
+                              .replace("_individual_", "_")
+                              .replace("_company_", "_")
+                              .replace("aicomp_", "")
+                              .replace("aiind_", "")
+                              .replace("keywords", "")
+                              .split("_")
+                              .join(" ");
+                            return (
+                              <Flex key={item.key} gap={"4px"}>
+                                <Text size="sm">
+                                  <span
+                                    style={{
+                                      fontWeight: "bold",
+                                      marginRight: "8px",
+                                    }}
+                                  >
+                                    {title}:
+                                  </span>
+                                  {prospect.icp_fit_reason_v2
+                                    ? "Loading"
+                                    : "Not Scored"}
+                                </Text>
+                              </Flex>
+                            );
+                          })}
+                      {icp_scoring_ruleset_typed &&
+                        icp_scoring_ruleset_typed.company_ai_filters &&
+                        icp_scoring_ruleset_typed.company_ai_filters
+                          .filter((item) => {
+                            if (prospect.icp_company_fit_reason) {
+                              return (
+                                !(
+                                  item.key in prospect.icp_company_fit_reason
+                                ) ||
+                                prospect.icp_company_fit_reason[item.key]
+                                  .answer === "LOADING"
+                              );
+                            }
+
+                            return true;
+                          })
+                          .map((item) => {
+                            const title = item.key
+                              .replace("_individual_", "_")
+                              .replace("_company_", "_")
+                              .replace("aicomp_", "")
+                              .replace("aiind_", "")
+                              .replace("keywords", "")
+                              .split("_")
+                              .join(" ");
+                            return (
+                              <Flex key={item.key} gap={"4px"}>
+                                <Text size="sm">
+                                  <span
+                                    style={{
+                                      fontWeight: "bold",
+                                      marginRight: "8px",
+                                    }}
+                                  >
+                                    {title}:
+                                  </span>
+                                  {prospect.icp_company_fit_reason
+                                    ? "Loading"
+                                    : "Not Scored"}
+                                </Text>
+                              </Flex>
+                            );
+                          })}
                     </Flex>
                   }
                 >
@@ -892,15 +976,36 @@ export const ArchetypeFilters = function ({
               );
             } else if (item.key === "overall_status") {
               return <Badge color={"blue"}>{p[keyType]}</Badge>;
+            } else if (item.key === "email" && !p[keyType]) {
+              return (
+                <Tooltip
+                  position="bottom"
+                  withinPortal={true}
+                  offset={8}
+                  label={"Email is revealed when the campaign is launched."}
+                >
+                  <Box style={{ textWrap: "wrap", maxWidth: "250px" }}>
+                    <Text truncate>
+                      {p[keyType] ? p[keyType] : "Not Found"}
+                    </Text>
+                  </Box>
+                </Tooltip>
+              );
             }
-            return <Text style={{ maxHeight: "2em" }}>{p[keyType]}</Text>;
+            return (
+              <Box style={{ textWrap: "wrap", maxWidth: "250px" }}>
+                <Text truncate>{p[keyType] ? p[keyType] : "Not Found"}</Text>
+              </Box>
+            );
           } else {
             if (value) {
               return !updatedIndividualColumns.has(item.key) ? (
-                <HoverCard>
+                <HoverCard position="bottom" withinPortal>
                   <HoverCard.Target>
                     {value.answer === "LOADING" ? (
-                      <Loader size={"xs"} />
+                      <Text>
+                        <Loader size={"xs"} />
+                      </Text>
                     ) : (
                       <Text
                         color={value.answer === "YES" ? "green" : "red"}
@@ -917,12 +1022,39 @@ export const ArchetypeFilters = function ({
                         {value.reasoning}
                       </Text>
                       <Divider />
-                      <Text>
+                      <Text size={"xs"}>
                         <span style={{ fontWeight: "bold" }}>
                           {`Source:  `}
                         </span>
                         {value.source}
                       </Text>
+                      {value.question && (
+                        <Text size={"xs"}>
+                          <span style={{ fontWeight: "bold" }}>
+                            {`Question:  `}
+                          </span>
+                          {value.question}
+                        </Text>
+                      )}
+                      {value.last_run && (
+                        <Text size={"xs"}>
+                          <span style={{ fontWeight: "bold" }}>
+                            {`Last Updated:  `}
+                          </span>
+                          {new Date(value.last_run + " UTC").toLocaleString(
+                            "en-US",
+                            {
+                              year: "numeric",
+                              month: "2-digit",
+                              day: "2-digit",
+                              hour: "2-digit",
+                              minute: "2-digit",
+                              second: "2-digit",
+                              hour12: true,
+                            }
+                          )}
+                        </Text>
+                      )}
                     </Flex>
                   </HoverCard.Dropdown>
                 </HoverCard>
@@ -932,13 +1064,13 @@ export const ArchetypeFilters = function ({
                 </Text>
               );
             } else {
-              return "";
+              return "Not Scored";
             }
           }
         },
       };
     });
-  }, [prospects, updatedIndividualColumns, icp_scoring_ruleset_typed]);
+  }, [prospects, updatedIndividualColumns, icp_scoring_ruleset]);
 
   const table = useMantineReactTable({
     columns: generatedColumns,
@@ -1018,25 +1150,44 @@ export const ArchetypeFilters = function ({
   });
 
   return (
-    <Flex gap={"8px"} style={{ overflowY: "hidden", height: "100%" }}>
+    <Flex gap={"8px"} style={{ maxWidth: "1450px", height: "100%" }}>
       {isLoading && <Loader />}
-      {!isLoading && icp_scoring_ruleset && !hideFeature && (
-        <CampaignFilters
-          prospects={prospects}
-          icp_scoring_ruleset={icp_scoring_ruleset}
-          selectedContacts={selectedContacts}
-          archetype_id={currentProject?.id}
-          setContactTableHeaders={setContactTableHeaders}
-          setHeaderSet={setHeaderSet}
-          setUpdatedIndividualColumns={setUpdatedIndividualColumns}
-          programmaticUpdates={programmaticUpdateList}
-          setProgrammaticUpdates={setProgrammaticUpdateList}
-        />
+      {!isLoading &&
+        icp_scoring_ruleset &&
+        !hideFeature &&
+        !collapseFilters && (
+          <CampaignFilters
+            prospects={prospects}
+            icp_scoring_ruleset={icp_scoring_ruleset}
+            selectedContacts={selectedContacts}
+            archetype_id={currentProject?.id}
+            setContactTableHeaders={setContactTableHeaders}
+            setHeaderSet={setHeaderSet}
+            setUpdatedIndividualColumns={setUpdatedIndividualColumns}
+            programmaticUpdates={programmaticUpdateList}
+            setProgrammaticUpdates={setProgrammaticUpdateList}
+            setCollapseFilters={setCollapseFilters}
+          />
+        )}
+      {collapseFilters && (
+        <ActionIcon onClick={() => setCollapseFilters(false)}>
+          <IconChevronRight />
+        </ActionIcon>
       )}
       <Divider orientation={"vertical"} />
-      <Flex direction={"column"} gap={"8px"} style={{ maxWidth: "1150px" }}>
+      <Flex
+        direction={"column"}
+        gap={"8px"}
+        style={{ maxWidth: collapseFilters ? "1450px" : "1150px" }}
+      >
         {selectedContacts && selectedContacts.size > 0 && (
-          <Flex justify={"flex-end"} align={"center"} gap={"xs"} mt={"sm"}>
+          <Flex
+            justify={"flex-end"}
+            align={"center"}
+            gap={"xs"}
+            mt={"sm"}
+            style={{ maxWidth: "1150px" }}
+          >
             <Text>Bulk Actions - {selectedContacts.size} Selected</Text>
             <Tooltip
               withinPortal
@@ -1079,7 +1230,7 @@ export const ArchetypeFilters = function ({
               </Button>
             </Tooltip>
             <BulkActions
-              hideFeature={hideFeature}
+              hideFeature={isSelix}
               selectedProspects={prospects.filter((prospect) =>
                 selectedContacts.has(prospect.id)
               )}
@@ -1113,7 +1264,7 @@ export const ArchetypeFilters = function ({
             style={{ minWidth: "93%" }}
             onChange={(event) => setFilteredWords(event.currentTarget.value)}
           />
-          {!hideFeature && (
+          {!isSelix && (
             <Tooltip label="Upload custom data points to your prospects.">
               <Button
                 size="sm"
@@ -1139,7 +1290,7 @@ export const ArchetypeFilters = function ({
         </Flex>
         <Flex
           className="border border-[#ced4da] rounded-md border-solid"
-          style={{ minWidth: "800px", maxWidth: "800px" }}
+          style={{ minWidth: isSelix ? "100%" : "800px", maxWidth: "800px" }}
         >
           {["5", "4", "3", "2", "1", "0"].map((item) => {
             let label = "All";
@@ -1194,7 +1345,11 @@ export const ArchetypeFilters = function ({
             );
           })}
         </Flex>
-        <Box>
+        <Box
+          style={{
+            maxWidth: isSelix ? "50vw" : collapseFilters ? "1225px" : "950px",
+          }}
+        >
           {icp_scoring_ruleset_typed && <MantineReactTable table={table} />}
         </Box>
       </Flex>

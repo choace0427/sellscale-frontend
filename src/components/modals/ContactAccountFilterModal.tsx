@@ -33,6 +33,12 @@ import { FaFilter } from "react-icons/fa6";
 import { socket } from "../App";
 import { DataRow } from "@pages/CampaignV2/ArchetypeFilterModal";
 import { MantineReactTable, useMantineReactTable } from "mantine-react-table";
+import { IconChevronRight, IconFileDownload, IconTrash } from "@tabler/icons";
+import { openConfirmModal } from "@mantine/modals";
+import { showNotification } from "@mantine/notifications";
+import BulkActions from "@common/persona/BulkActions_new";
+import { CSVLink } from "react-csv";
+import BulkActionsSegment from "@drawers/BulkActions_segment";
 
 interface ContactAccountFilterModalProps {
   showContactAccountFilterModal: boolean;
@@ -69,6 +75,7 @@ export interface AIFilters {
   title: string;
   prompt: string;
   use_linkedin: boolean;
+  relevancy: string;
 }
 
 export interface ICPScoringRuleset extends ICPScoringRulesetKeys {
@@ -121,8 +128,6 @@ const ContactAccountFilterModal = function ({
 }: ContactAccountFilterModalProps) {
   const userToken = useRecoilValue(userTokenState);
 
-  console.log("segment is", segment);
-
   const [viewMode, setViewMode] = useState<ViewMode>("CONTACT");
   const [prospects, setProspects] = useState<Prospect[]>([]);
 
@@ -135,6 +140,8 @@ const ContactAccountFilterModal = function ({
   const [programmaticUpdateList, setProgrammaticUpdateList] = useState<
     Set<number>
   >(new Set());
+
+  const [collapseFilters, setCollapseFilters] = useState<boolean>(false);
 
   const [filteredColumns, setFilteredColumns] = useState<Map<string, string>>(
     new Map()
@@ -153,6 +160,7 @@ const ContactAccountFilterModal = function ({
       { key: "title", title: "Title" },
       { key: "company", title: "Company" },
       { key: "linkedin_url", title: "Linkedin URL" },
+      { key: "email", title: "Email" },
       { key: "overall_status", title: "Status" },
     ]
   );
@@ -164,6 +172,7 @@ const ContactAccountFilterModal = function ({
     "icp_prospect_fit_score",
     "icp_company_fit_score",
     "linkedin_url",
+    "email",
     "overall_status",
   ];
 
@@ -173,6 +182,8 @@ const ContactAccountFilterModal = function ({
       { key: "company", title: "Account Name" },
     ]
   );
+
+  const [removeProspectsLoading, setRemoveProspectsLoading] = useState(false);
 
   const [selectedContacts, setSelectedContacts] = useState<Set<number>>(
     new Set()
@@ -211,13 +222,13 @@ const ContactAccountFilterModal = function ({
       const list: number[] = data.update;
 
       const newProgrammaticUpdateList = new Set(programmaticUpdateList);
-      
-      list.forEach(i => {
+
+      list.forEach((i) => {
         newProgrammaticUpdateList.delete(i);
-      })
-      
+      });
+
       setProgrammaticUpdateList(newProgrammaticUpdateList);
-    })
+    });
 
     return () => {
       socket.off("update_prospect_list");
@@ -299,6 +310,7 @@ const ContactAccountFilterModal = function ({
         { key: "title", title: "Title" },
         { key: "company", title: "Company" },
         { key: "linkedin_url", title: "Linkedin URL" },
+        { key: "email", title: "Email" },
         { key: "overall_status", title: "Status" },
       ];
 
@@ -660,6 +672,65 @@ const ContactAccountFilterModal = function ({
     }
   };
 
+  const triggerMoveToUnassigned = async () => {
+    setRemoveProspectsLoading(true);
+
+    const prospectIDs = Array.from(selectedContacts);
+    try {
+      showNotification({
+        id: "prospect-removed-segment",
+        title: "Removing Prospects from Segment",
+        message: `Removed Prospects from Segments.`,
+        color: "blue",
+        autoClose: 3000,
+      });
+
+      const response = await fetch(`${API_URL}/prospect/remove_from_segment`, {
+        method: "PATCH",
+        headers: {
+          Authorization: `Bearer ${userToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          prospect_ids: prospectIDs,
+        }),
+      });
+
+      if (response.ok) {
+        showNotification({
+          id: "prospect-removed-segment",
+          title: "Prospects removed from Segment",
+          message: `${prospectIDs.length} prospects has been removed from your segment`,
+          color: "green",
+          autoClose: 3000,
+        });
+      } else {
+        showNotification({
+          id: "prospect-removed",
+          title: "Prospects removal failed",
+          message:
+            "These prospects could not be removed. Please try again, or contact support.",
+          color: "red",
+          autoClose: false,
+        });
+      }
+
+      refetch();
+      setSelectedContacts(new Set());
+    } catch (error) {
+      showNotification({
+        id: "prospect-removed",
+        title: "Prospects removal failed",
+        message:
+          "These prospects could not be removed. Please try again, or contact support.",
+        color: "red",
+        autoClose: false,
+      });
+    } finally {
+      setRemoveProspectsLoading(false);
+    }
+  };
+
   const generatedProspectData = useMemo(() => {
     return displayProspects.map((prospect) => {
       const p = {
@@ -681,7 +752,7 @@ const ContactAccountFilterModal = function ({
 
       return row;
     });
-  }, [displayProspects, contactTableHeaders]);
+  }, [displayProspects, contactTableHeaders, icp_scoring_ruleset]);
 
   const generatedProspectAccountData = useMemo(() => {
     return displayProspectAccounts.map((prospectAccount) => {
@@ -709,7 +780,12 @@ const ContactAccountFilterModal = function ({
 
       return row;
     });
-  }, [prospects, companyTableHeaders, displayProspectAccounts]);
+  }, [
+    prospects,
+    companyTableHeaders,
+    displayProspectAccounts,
+    icp_scoring_ruleset,
+  ]);
 
   const generatedProspectColumns = useMemo(() => {
     if (!icp_scoring_ruleset_typed) {
@@ -865,12 +941,7 @@ const ContactAccountFilterModal = function ({
                             .split("_")
                             .join(" ");
 
-                          if (
-                            section.answer === "NO" &&
-                            icp_scoring_ruleset_typed.dealbreakers?.includes(
-                              key
-                            )
-                          ) {
+                          if (section.answer === "NO") {
                             return (
                               <Flex key={key} gap={"4px"}>
                                 <Text>❌</Text>
@@ -910,6 +981,47 @@ const ContactAccountFilterModal = function ({
 
                           return <></>;
                         })}
+                      {icp_scoring_ruleset_typed &&
+                        icp_scoring_ruleset_typed.individual_ai_filters &&
+                        icp_scoring_ruleset_typed.individual_ai_filters
+                          .filter((item) => {
+                            if (prospect.icp_fit_reason_v2) {
+                              return (
+                                !(item.key in prospect.icp_fit_reason_v2) ||
+                                prospect.icp_fit_reason_v2[item.key].answer ===
+                                  "LOADING"
+                              );
+                            }
+
+                            return true;
+                          })
+                          .map((item) => {
+                            const title = item.key
+                              .replace("_individual_", "_")
+                              .replace("_company_", "_")
+                              .replace("aicomp_", "")
+                              .replace("aiind_", "")
+                              .replace("keywords", "")
+                              .split("_")
+                              .join(" ");
+                            return (
+                              <Flex key={item.key} gap={"4px"}>
+                                <Text size="sm">
+                                  <span
+                                    style={{
+                                      fontWeight: "bold",
+                                      marginRight: "8px",
+                                    }}
+                                  >
+                                    {title}:
+                                  </span>
+                                  {prospect.icp_fit_reason_v2
+                                    ? "Loading"
+                                    : "Not Scored"}
+                                </Text>
+                              </Flex>
+                            );
+                          })}
                     </Flex>
                   }
                 >
@@ -941,12 +1053,31 @@ const ContactAccountFilterModal = function ({
               );
             } else if (item.key === "overall_status") {
               return <Badge color={"blue"}>{p[keyType]}</Badge>;
+            } else if (item.key === "email") {
+              return (
+                <Tooltip
+                  position="bottom"
+                  withinPortal={true}
+                  offset={8}
+                  label={"Email is revealed when the campaign is launched."}
+                >
+                  <Box style={{ textWrap: "wrap" }}>
+                    <Text truncate>
+                      {p[keyType] ? p[keyType] : "Not Found"}
+                    </Text>
+                  </Box>
+                </Tooltip>
+              );
             }
-            return <Text style={{ maxHeight: "2em" }}>{p[keyType]}</Text>;
+            return (
+              <Box style={{ textWrap: "wrap" }}>
+                <Text truncate>{p[keyType] ? p[keyType] : "Not Found"}</Text>
+              </Box>
+            );
           } else {
             if (value) {
               return !updatedIndividualColumns.has(item.key) ? (
-                <HoverCard>
+                <HoverCard position="bottom" withinPortal>
                   <HoverCard.Target>
                     {value.answer === "LOADING" ? (
                       <Loader size={"xs"} />
@@ -966,12 +1097,39 @@ const ContactAccountFilterModal = function ({
                         {value.reasoning}
                       </Text>
                       <Divider />
-                      <Text>
+                      <Text size={"xs"}>
                         <span style={{ fontWeight: "bold" }}>
                           {`Source:  `}
                         </span>
                         {value.source}
                       </Text>
+                      {value.question && (
+                        <Text size={"xs"}>
+                          <span style={{ fontWeight: "bold" }}>
+                            {`Question:  `}
+                          </span>
+                          {value.question}
+                        </Text>
+                      )}
+                      {value.last_run && (
+                        <Text size={"xs"}>
+                          <span style={{ fontWeight: "bold" }}>
+                            {`Last Updated:  `}
+                          </span>
+                          {new Date(value.last_run + " UTC").toLocaleString(
+                            "en-US",
+                            {
+                              year: "numeric",
+                              month: "2-digit",
+                              day: "2-digit",
+                              hour: "2-digit",
+                              minute: "2-digit",
+                              second: "2-digit",
+                              hour12: true,
+                            }
+                          )}
+                        </Text>
+                      )}
                     </Flex>
                   </HoverCard.Dropdown>
                 </HoverCard>
@@ -987,7 +1145,7 @@ const ContactAccountFilterModal = function ({
         },
       };
     });
-  }, [prospects, updatedIndividualColumns, icp_scoring_ruleset_typed]);
+  }, [prospects, updatedIndividualColumns, icp_scoring_ruleset]);
 
   const generatedProspectAccountColumns = useMemo(() => {
     if (!icp_scoring_ruleset_typed) {
@@ -1142,12 +1300,7 @@ const ContactAccountFilterModal = function ({
                               .split("_")
                               .join(" ");
 
-                            if (
-                              section.answer === "NO" &&
-                              icp_scoring_ruleset_typed.dealbreakers?.includes(
-                                key
-                              )
-                            ) {
+                            if (section.answer === "NO") {
                               return (
                                 <Flex key={key} gap={"4px"}>
                                   <Text>❌</Text>
@@ -1188,6 +1341,49 @@ const ContactAccountFilterModal = function ({
                             return <></>;
                           }
                         )}
+                      {icp_scoring_ruleset_typed &&
+                        icp_scoring_ruleset_typed.company_ai_filters &&
+                        icp_scoring_ruleset_typed.company_ai_filters
+                          .filter((item) => {
+                            if (prospect.icp_company_fit_reason) {
+                              return (
+                                !(
+                                  item.key in prospect.icp_company_fit_reason
+                                ) ||
+                                prospect.icp_company_fit_reason[item.key]
+                                  .answer === "LOADING"
+                              );
+                            }
+
+                            return true;
+                          })
+                          .map((item) => {
+                            const title = item.key
+                              .replace("_individual_", "_")
+                              .replace("_company_", "_")
+                              .replace("aicomp_", "")
+                              .replace("aiind_", "")
+                              .replace("keywords", "")
+                              .split("_")
+                              .join(" ");
+                            return (
+                              <Flex key={item.key} gap={"4px"}>
+                                <Text size="sm">
+                                  <span
+                                    style={{
+                                      fontWeight: "bold",
+                                      marginRight: "8px",
+                                    }}
+                                  >
+                                    {title}:
+                                  </span>
+                                  {prospect.icp_company_fit_reason
+                                    ? "Loading"
+                                    : "Not Scored"}
+                                </Text>
+                              </Flex>
+                            );
+                          })}
                     </Flex>
                   }
                 >
@@ -1220,11 +1416,15 @@ const ContactAccountFilterModal = function ({
             } else if (item.key === "overall_status") {
               return <Badge color={"blue"}>{p[keyType]}</Badge>;
             }
-            return <Text style={{ maxHeight: "2em" }}>{p[keyType]}</Text>;
+            return (
+              <Box style={{ textWrap: "wrap", maxWidth: "250px" }}>
+                <Text truncate>{p[keyType] ? p[keyType] : "Not Found"}</Text>
+              </Box>
+            );
           } else {
             if (value) {
               return !updatedCompanyColumns.has(item.key) ? (
-                <HoverCard>
+                <HoverCard position="bottom" withinPortal>
                   <HoverCard.Target>
                     {value.answer === "LOADING" ? (
                       <Loader size={"xs"} />
@@ -1244,12 +1444,39 @@ const ContactAccountFilterModal = function ({
                         {value.reasoning}
                       </Text>
                       <Divider />
-                      <Text>
+                      <Text size={"xs"}>
                         <span style={{ fontWeight: "bold" }}>
                           {`Source:  `}
                         </span>
                         {value.source}
                       </Text>
+                      {value.question && (
+                        <Text size={"xs"}>
+                          <span style={{ fontWeight: "bold" }}>
+                            {`Question:  `}
+                          </span>
+                          {value.question}
+                        </Text>
+                      )}
+                      {value.last_run && (
+                        <Text size={"xs"}>
+                          <span style={{ fontWeight: "bold" }}>
+                            {`Last Updated:  `}
+                          </span>
+                          {new Date(value.last_run + " UTC").toLocaleString(
+                            "en-US",
+                            {
+                              year: "numeric",
+                              month: "2-digit",
+                              day: "2-digit",
+                              hour: "2-digit",
+                              minute: "2-digit",
+                              second: "2-digit",
+                              hour12: true,
+                            }
+                          )}
+                        </Text>
+                      )}
                     </Flex>
                   </HoverCard.Dropdown>
                 </HoverCard>
@@ -1265,9 +1492,7 @@ const ContactAccountFilterModal = function ({
         },
       };
     });
-  }, [prospects, updatedCompanyColumns, icp_scoring_ruleset_typed]);
-
-  console.log("generatedData: ", generatedProspectData);
+  }, [prospects, updatedCompanyColumns, icp_scoring_ruleset]);
 
   const contactTable = useMantineReactTable({
     columns: generatedProspectColumns,
@@ -1299,6 +1524,127 @@ const ContactAccountFilterModal = function ({
       withColumnBorders: true,
     },
   });
+
+  const csvData = prospects
+    .filter((prospect) => {
+      return selectedContacts.has(prospect.id);
+    })
+    .map((prospect) => {
+      let readable_score = "";
+      let color = "";
+      let number = "";
+      switch (prospect.icp_fit_score) {
+        case -1:
+          readable_score = "Not Scored";
+          color = "🟪";
+          number = "0";
+          break;
+        case 0:
+          readable_score = "Very Low";
+          color = "🟥";
+          number = "1";
+          break;
+        case 1:
+          readable_score = "Low";
+          color = "🟧";
+          number = "2";
+          break;
+        case 2:
+          readable_score = "Medium";
+          color = "🟨";
+          number = "3";
+          break;
+        case 3:
+          readable_score = "High";
+          color = "🟦";
+          number = "4";
+          break;
+        case 4:
+          readable_score = "Very High";
+          color = "green";
+          color = "🟩";
+          number = "5";
+          break;
+        default:
+          readable_score = "Unknown";
+          color = "";
+          break;
+      }
+
+      let icp_fit_reason = "";
+      let ai_filters = {};
+
+      if (prospect.icp_fit_reason_v2) {
+        const reason_keys = Object.keys(prospect.icp_fit_reason_v2);
+
+        reason_keys.forEach((key) => {
+          const answer =
+            prospect.icp_fit_reason_v2[key].answer +
+            " - " +
+            prospect.icp_fit_reason_v2[key].reasoning;
+
+          if (key.includes("aiind") || key.includes("aicomp")) {
+            ai_filters = {
+              ...ai_filters,
+              [key]: answer.replace("❌", "").replace("✅", ""),
+            };
+          }
+          icp_fit_reason +=
+            key + ": " + prospect.icp_fit_reason_v2[key].reasoning + ". ";
+        });
+      }
+
+      if (prospect.icp_company_fit_reason) {
+        const reason_keys = Object.keys(prospect.icp_company_fit_reason);
+
+        reason_keys.forEach((key) => {
+          const answer =
+            prospect.icp_company_fit_reason[key].answer +
+            " - " +
+            prospect.icp_company_fit_reason[key].reasoning;
+
+          if (key.includes("aiind") || key.includes("aicomp")) {
+            ai_filters = {
+              ...ai_filters,
+              [key]: answer.replace("❌", "").replace("✅", ""),
+            };
+          }
+          icp_fit_reason +=
+            key + ": " + prospect.icp_company_fit_reason[key].reasoning + ". ";
+        });
+      }
+
+      return {
+        id: prospect.id,
+        label: `${number} ${color} ${readable_score}`.toUpperCase(),
+        full_name: prospect.full_name,
+        title: prospect.title,
+        company: prospect.company,
+        icp_fit_reason: icp_fit_reason,
+        linkedin_url: prospect.linkedin_url,
+        email: prospect.email,
+        ...ai_filters,
+      };
+    });
+
+  const csvHeaders = [
+    { label: "ID", key: "id" },
+    { label: "Label", key: "label" },
+    { label: "Full name", key: "full_name" },
+    { label: "Title", key: "title" },
+    { label: "Company", key: "company" },
+    { label: "Icp fit reason", key: "icp_fit_reason" },
+    { label: "LinkedinURL", key: "linkedin_url" },
+    { label: "Email", key: "email" },
+    ...contactTableHeaders
+      .filter(
+        (header) =>
+          header.key.includes("aiind") || header.key.includes("aicomp")
+      )
+      .map((header) => {
+        return { key: header.key, label: header.title };
+      }),
+  ];
 
   const companyTable = useMantineReactTable({
     columns: generatedProspectAccountColumns.map((column) => {
@@ -1376,11 +1722,11 @@ const ContactAccountFilterModal = function ({
       onClose={() => setShowContactAccountFilterModal(false)}
       zIndex={10}
       opened={showContactAccountFilterModal}
-      size={"1100px"}
-      style={{ maxHeight: "700px", maxWidth: "1100px" }}
+      size={"100%"}
+      style={{ maxHeight: "700px", minWidth: "1450px" }}
       title={
         <Flex justify={"space-between"} gap={"36px"}>
-          <Title order={3} style={{ maxWidth: "300px" }}>
+          <Title order={3} style={{ maxWidth: "600px" }}>
             {segment?.is_market_map
               ? segment.segment_title + " Market Map View"
               : segment?.segment_title + " Segment View"}
@@ -1420,9 +1766,9 @@ const ContactAccountFilterModal = function ({
         </Flex>
       }
     >
-      <Flex gap={"8px"} style={{ overflowY: "hidden", height: "100%" }}>
+      <Flex gap={"8px"} style={{ maxWidth: "1450px", height: "100%" }}>
         {isLoading && <Loader />}
-        {!isLoading && icp_scoring_ruleset && (
+        {!isLoading && icp_scoring_ruleset && !collapseFilters && (
           <MarketMapFilters
             prospects={prospects}
             viewMode={viewMode}
@@ -1438,14 +1784,95 @@ const ContactAccountFilterModal = function ({
             setUpdatedIndividualColumns={setUpdatedIndividualColumns}
             programmaticUpdates={programmaticUpdateList}
             setProgrammaticUpdates={setProgrammaticUpdateList}
+            setCollapseFilters={setCollapseFilters}
           />
+        )}
+        {collapseFilters && (
+          <ActionIcon onClick={() => setCollapseFilters(false)}>
+            <IconChevronRight />
+          </ActionIcon>
         )}
         <Divider orientation={"vertical"} />
         <Flex
           direction={"column"}
           gap={"8px"}
-          style={{ minWidth: "750px", maxWidth: "750px" }}
+          style={{ maxWidth: collapseFilters ? "1450px" : "1150px" }}
         >
+          {selectedContacts && selectedContacts.size > 0 && (
+            <Flex
+              justify={"flex-end"}
+              align={"center"}
+              gap={"xs"}
+              mt={"sm"}
+              style={{ maxWidth: "1150px" }}
+            >
+              <Text>Bulk Actions - {selectedContacts.size} Selected</Text>
+              <Tooltip
+                withinPortal
+                label="Remove 'Prospected' or 'Sent Outreach' prospects from this campaign."
+              >
+                <Button
+                  color="red"
+                  leftIcon={<IconTrash size={14} />}
+                  size="sm"
+                  loading={removeProspectsLoading}
+                  onClick={() => {
+                    openConfirmModal({
+                      title: "Remove these prospects?",
+                      children: (
+                        <>
+                          <Text>
+                            Are you sure you want to remove these{" "}
+                            {selectedContacts.size} prospects? This will move
+                            them into your Unassigned Contacts list.
+                          </Text>
+                          <Text mt="xs">
+                            <b>Note: </b>Only "Prospected" and "Sent Outreach"
+                            prospects will be removed.
+                          </Text>
+                        </>
+                      ),
+                      labels: {
+                        confirm: "Remove",
+                        cancel: "Cancel",
+                      },
+                      confirmProps: { color: "red" },
+                      onCancel: () => {},
+                      onConfirm: () => {
+                        triggerMoveToUnassigned();
+                      },
+                    });
+                  }}
+                >
+                  Remove
+                </Button>
+              </Tooltip>
+              <BulkActionsSegment
+                selectedProspects={prospects.filter((prospect) =>
+                  selectedContacts.has(prospect.id)
+                )}
+                backFunc={() => {
+                  setSelectedContacts(new Set());
+                  refetch();
+                  showNotification({
+                    title: "Success",
+                    message: `${selectedContacts.size} prospects has been moved to the new Segment.`,
+                    color: "green",
+                    autoClose: 5000,
+                  });
+                }}
+              />
+              <CSVLink data={csvData} headers={csvHeaders} filename="export">
+                <Button
+                  color="green"
+                  leftIcon={<IconFileDownload size={14} />}
+                  size="sm"
+                >
+                  Download CSV
+                </Button>
+              </CSVLink>
+            </Flex>
+          )}
           <Flex gap={"4px"} align={"end"} justify="space-between">
             <TextInput
               label={"Global Search"}
@@ -1456,7 +1883,11 @@ const ContactAccountFilterModal = function ({
             />
           </Flex>
           {icp_scoring_ruleset_typed && (
-            <Box>
+            <Box
+              style={{
+                maxWidth: collapseFilters ? "1225px" : "950px",
+              }}
+            >
               {!isLoading && viewMode === "ACCOUNT" ? (
                 <MantineReactTable table={companyTable} />
               ) : (
@@ -1468,7 +1899,7 @@ const ContactAccountFilterModal = function ({
       </Flex>
     </Modal>
   ) : (
-    <Box style={{ maxHeight: "700px", maxWidth: "1100px" }}>
+    <Box style={{ maxWidth: collapseFilters ? "1450px" : "1150px" }}>
       <Flex justify={"space-between"} gap={"36px"}>
         <Title order={3} style={{ maxWidth: "100%" }}>
           {segment?.is_market_map

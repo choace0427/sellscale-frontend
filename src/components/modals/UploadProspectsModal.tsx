@@ -22,6 +22,11 @@ import {
   Accordion,
   NumberInput,
   Checkbox,
+  Table,
+  HoverCard,
+  Loader,
+  List,
+  ScrollArea,
 } from "@mantine/core";
 import { ContextModalProps, openContextModal } from "@mantine/modals";
 import { useEffect, useRef, useState } from "react";
@@ -30,12 +35,15 @@ import {
   IconBrandLinkedin,
   IconBulb,
   IconChartBar,
+  IconCheck,
   IconChevronDown,
   IconChevronLeft,
   IconChevronRight,
   IconChevronUp,
+  IconCircleCheck,
   IconEye,
   IconInfoCircle,
+  IconLayoutBoard,
   IconMailOpened,
   IconPencil,
   IconPlus,
@@ -46,7 +54,8 @@ import {
 } from "@tabler/icons";
 import { useQuery } from "@tanstack/react-query";
 import { useRecoilState, useRecoilValue } from "recoil";
-import { userDataState, userTokenState } from "@atoms/userAtoms";
+import { campaignContactsState, emailSequenceState, linkedinSequenceState, userTokenState } from "@atoms/userAtoms";
+import { userDataState } from "@atoms/userAtoms";
 import { logout } from "@auth/core";
 import {Archetype, DefaultVoices, MsgResponse} from "src";
 import { API_URL } from "@constants/data";
@@ -57,15 +66,158 @@ import { currentProjectState } from "@atoms/personaAtoms";
 import { useStrategiesApi } from "@pages/Strategy/StrategyApi";
 import { showNotification } from "@mantine/notifications";
 import { set } from "lodash";
+import { TransformedSegment } from "@pages/SegmentV3/SegmentV3";
+import { useTrackApi } from "@common/settings/Traffic/WebTrafficRoutingApi";
+import { AssetType } from "@pages/AssetLibrary/AssetLibraryV2";
 
-export default function UploadProspectsModal({ context, id, innerProps }: ContextModalProps<{ mode: "ADD-ONLY" | "ADD-CREATE" | "CREATE-ONLY" }>) {
+export default function UploadProspectsModal({ context, id, innerProps }: ContextModalProps<{ mode: "CREATE-ONLY"; strategy_id?: number | undefined; selixSessionId?: Number | null }>) {
   const theme = useMantineTheme();
+  const userToken = useRecoilValue(userTokenState);
   const userData = useRecoilValue(userDataState);
   const [personas, setPersonas] = useState<{ value: string; label: string; group: string | undefined }[]>([]);
+  const [hasSequences, setHasSequences] = useState<boolean>(false); //used for the selix widget
   const defaultPersonas = useRef<{ value: string; label: string; group: string | undefined }[]>([]);
   const [createdPersona, setCreatedPersona] = useState("");
   const [selectedPersona, setSelectedPersona] = useState<string | null>(null);
   const [loadingStrategy, setLoadingStrategy] = useState(false);
+  const [handlingStrategy, setHandlingStrategy] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [segmentData, setSegmentData] = useState<TransformedSegment[]>([]);
+  const [assets, setAssets] = useState<AssetType[]>([]);
+  const [checkedStates, setCheckedStates] = useState<boolean[]>([]);
+  const [includedAssetIdArray, setIncludedAssetIdArray] = useState<number[]>([]);
+  const [isListOpen, setIsListOpen] = useState(false);
+  const [segmentOptions, setSegmentOptions] = useState<Segment[]>([]);
+  const [fetchingSegments, setFetchingSegments] = useState(false);
+  const [selectedSegmentId, setSelectedSegmentId] = useState(-1);
+
+  const handleCheckboxChange = (checked: boolean, index: number, id: number) => {
+
+    const newCheckedStates = [...checkedStates];
+    newCheckedStates[index] = checked;
+    setCheckedStates(newCheckedStates);
+
+    if (checked) {
+      setIncludedAssetIdArray((prevArray) => [...prevArray, id]);
+      const asset = assets.find(asset => asset.id === id);
+      if (asset) {
+        const assetRawValue = asset.asset_raw_value ?? '';
+        setEmailAssetIngestor((prevString) => prevString.includes(assetRawValue) ? prevString : prevString + assetRawValue);
+        setLiAssetIngestor((prevString) => prevString.includes(assetRawValue) ? prevString : prevString + assetRawValue);
+      }
+    } else {
+      setIncludedAssetIdArray((prevArray) => prevArray.filter(assetId => assetId !== id));
+      const asset = assets.find(asset => asset.id === id);
+      if (asset) {
+        const assetRawValue = asset.asset_raw_value ?? '';
+        setEmailAssetIngestor((prevString) => prevString.replace(assetRawValue, ''));
+        setLiAssetIngestor((prevString) => prevString.replace(assetRawValue, ''));
+      }
+    }
+  };
+
+  const {
+    updateIcpRoute,
+    getAllIcpRoutes,
+    getWebVisits,
+    getSegments
+  } = useTrackApi(userToken);
+
+  type Segment = {
+    num_results: number;
+    attached_segments: any[];
+    client_archetype: {
+      archetype: string;
+      emoji: string;
+    };
+    client_sdr: {
+      client_id: number;
+      id: number;
+    };
+    filters: {
+      excluded_bio_keywords: string[];
+      excluded_company_keywords: string[];
+      excluded_education_keywords: string[];
+      // Add other filter fields as necessary
+    };
+    id: number;
+    num_contacted: number;
+    num_prospected: number;
+    parent_segment_id: number | null;
+    saved_apollo_query_id: number;
+    segment_title: string;
+    unique_companies: number;
+  };
+
+  const getAllSegments = async (showLoader: boolean, tagFilter?: Number) => {
+    function transformData(segments: any[]) {
+      return segments.map((segment, index) => {
+        // Assume progress, campaign, contacts, filters, assets are derived somehow
+        return {
+          id: segment.id,
+          person_name: segment.segment_title,
+          segment_title: segment.segment_title,
+          progress: Math.floor(Math.random() * 100), // Fake random progress
+          campaign: Math.floor(Math.random() * 100), // Fake random campaign ID or null
+          contacts: Math.floor(Math.random() * 2000000), // Fake random contacts number
+          filters: Object.keys(segment.filters).length, // Count of filter types
+          assets: Math.floor(Math.random() * 100), // Fake random asset count or null
+          sub_segments: [], // This needs to be populated based on more complex logic or additional data
+          client_archetype: segment.client_archetype,
+          client_sdr: segment.client_sdr,
+          num_prospected: segment.num_prospected,
+          num_contacted: segment.num_contacted,
+          apollo_query: segment.apollo_query,
+          segment_tags: segment.attached_segments,
+          autoscrape_enabled: segment.autoscrape_enabled,
+          current_scrape_page: segment.current_scrape_page,
+        };
+      });
+    }
+    if (showLoader) {
+      setLoading(true);
+    }
+    fetch(
+      `${API_URL}/segment/all?include_all_in_client=true` +
+        (tagFilter !== -1
+          ? `&tag_filter=${tagFilter}`
+          : ""),
+      {
+        method: "GET",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${userToken}`,
+        },
+      }
+    )
+      .then((response) => response.json())
+      .then((data) => {
+        const segments = data.segments;
+  
+        const parentSegments = segments.filter(
+          (segment: any) => !segment.parent_segment_id
+        );
+        let parentSegmentsTransformed = transformData(parentSegments);
+
+        const parentSegmentsTransformedWithSubSegments: any = parentSegmentsTransformed?.map(
+          (segment) => {
+            const subSegments = segments.filter(
+              (subSegment: any) => subSegment.parent_segment_id === segment.id
+            );
+            return {
+              ...segment,
+              sub_segments: transformData(subSegments),
+            };
+          }
+        );
+
+        setSegmentData(parentSegmentsTransformedWithSubSegments);
+      })
+      .finally(() => {
+        console.log("Stopping");
+        setLoading(false);
+      });
+  };
 
   const [ctas, setCTAs] = useState<{ id: number; cta: string }[]>([]);
 
@@ -106,8 +258,10 @@ const [strategyOptions, setStrategyOptions] = useState<Strategy[]>([]);
 
   // New System for one shot campaign generator
   const [selectedVoice, setSelectedVoice] = useState<string | null>(null);
-  const [numSteps, setNumSteps] = useState(1);
-  const [numVariance, setNumVariance] = useState(1);
+  const [numStepsEmail, setNumStepsEmail] = useState(1);
+  const [numStepsLinkedin, setNumStepsLinkedin] = useState(1);
+  const [numVarianceEmail, setNumVarianceEmail] = useState(1);
+  const [numVarianceLinkedin, setNumVarianceLinkedin] = useState(1);
   const [liAssetIngestor, setLiAssetIngestor] = useState("");
 
   const [emailAssetIngestor, setEmailAssetIngestor] = useState("");
@@ -131,6 +285,7 @@ const [strategyOptions, setStrategyOptions] = useState<Strategy[]>([]);
   const [liCtaGenerator, setLiCtaGenerator] = useState(false);
   const [liPainPoint, setLiPainPoint] = useState("");
   const setLiSequenceToggle = () => setLiSequenceOpened(!liSequenceOpened);
+  const [assetSearch, setAssetSearch] = useState("");
   const [liSequenceState, setLiSequenceState] = useState({
     howItWorks: false,
     varyIntroMessages: false,
@@ -141,7 +296,7 @@ const [strategyOptions, setStrategyOptions] = useState<Strategy[]>([]);
     formerWorkAlum: false,
     feedbackBased: false,
   });
-  const [emailSequenceState, setEmailSequenceState] = useState({
+  const [emailSequenceStateRaw, setEmailSequenceState] = useState({
     howItWorks: false,
     varyIntroMessages: false,
     breakupMessage: false,
@@ -151,6 +306,45 @@ const [strategyOptions, setStrategyOptions] = useState<Strategy[]>([]);
     formerWorkAlum: false,
     feedbackBased: false,
     });
+
+    const fetchSegments = async () => {
+      setFetchingSegments(true);
+      const segments = await getSegments();
+      setSegmentOptions(segments);
+      setFetchingSegments(false);
+    };
+
+    const assetMatchesSearchCriteria = (asset: AssetType) => {
+      return asset.asset_key.toLowerCase().includes(assetSearch.toLowerCase()) || asset?.asset_raw_value?.toLowerCase().includes(assetSearch.toLowerCase());
+    }
+
+    const fetchAllAssets = async () => {
+      try {
+        const response = await fetch(`${API_URL}/client/all_assets_in_client`, {
+          method: 'GET',
+          headers: {
+            Authorization: `Bearer ${userToken}`,
+          },
+        });
+        const result = await response.json();
+        if (result.message === 'Success') {
+          const assets: AssetType[] = result.data;
+          setAssets(assets);
+        } else {
+          showNotification({
+            title: 'Error',
+            message: 'Failed to fetch assets',
+            color: 'red',
+          });
+        }
+      } catch (error) {
+        showNotification({
+          title: 'Error',
+          message: 'An error occurred while fetching assets',
+          color: 'red',
+        });
+      }
+    };
 
 
   useEffect(() => {
@@ -162,9 +356,33 @@ const [strategyOptions, setStrategyOptions] = useState<Strategy[]>([]);
         setDefaultVoicesOptions(data)
       }
     }
+    //show success box if strategy has generated sequences already
+    if (innerProps.selixSessionId) {
+      checkIfStrategyConnectedHasCampaignWithSequences(innerProps?.selixSessionId);
+    }
     handleStrategy();
+    fetchSegments();
     getVoices();
+    fetchAllAssets();
   }, [])
+
+  const checkIfStrategyConnectedHasCampaignWithSequences = async (selixSessionId: Number) => {
+    if (selixSessionId === -1) return false;
+
+    const response = await fetch(`${API_URL}/selix/${selixSessionId}/has_campaign_with_sequences`, {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${userToken}`,
+        "Content-Type": "application/json",
+      },
+    });
+
+    if (response.status === 200) {
+      setHasSequences(true);
+    } else {
+      setHasSequences(false);
+    }
+  }
 
   const [loadingPersonaBuyReasonGeneration, setLoadingPersonaBuyReasonGeneration] = useState(false);
   const generatePersonaBuyReason = async (): Promise<MsgResponse> => {
@@ -282,14 +500,17 @@ const [strategyOptions, setStrategyOptions] = useState<Strategy[]>([]);
       },
       body: JSON.stringify({
         strategy_id: strategy.id,
+        session_id: innerProps?.selixSessionId
       }),
     });
 
     if (response.status === 200) {
       const data: StrategyResponseData = await response.json();
       setFindSampleProspects(true);
-      setNumSteps(3);
-      setNumVariance(3);
+      setNumStepsEmail(3);
+      setNumStepsLinkedin(3);
+      setNumVarianceEmail(2);
+      setNumVarianceLinkedin(2);
       setCreatedPersona(data.createdPersona || '');
       setFitReason(data.fitReason || '');
       setICPMatchingPrompt(data.icpMatchingPrompt || '');
@@ -303,28 +524,55 @@ const [strategyOptions, setStrategyOptions] = useState<Strategy[]>([]);
       setWithData(data.withData || '');
       setLiAssetIngestor(data.liAssetIngestor || '');
       setEmailAssetIngestor(data.emailAssetIngestor || '');
-      setEmailSequenceOpened(true);
-      setWriteEmailSequenceDraft(true);
-      setWriteLISequenceDraft(true);
-      setLiSequenceOpened(true);
-    } else {
+
+      // HACK CITY - this is a hack to determine if we should show generated email or LI sequences
+
+      if (strategy.description.toLowerCase().includes("email")) {
+        setWriteEmailSequenceDraft(true);
+        setEmailSequenceOpened(true);
+      }
+      if (strategy.description.toLowerCase().includes("linkedin")) {
+        setWriteLISequenceDraft(true);
+        setLiSequenceOpened(true);
+      }
+      else if (
+        !strategy.description.toLowerCase().includes("email") &&
+        !strategy.description.toLowerCase().includes("linkedin")
+      ) {
+        setWriteEmailSequenceDraft(true);
+        setEmailSequenceOpened(true);
+        setWriteLISequenceDraft(true);
+        setLiSequenceOpened(true);
+      }
+    } 
+    else {
       console.error("Failed to generate from strategy");
     }
 
     setTab("scratch");
 
-    setLoadingStrategy(false);
+    // For now, lets only do Linkedin 
+    setWriteEmailSequenceDraft(false);
+    setEmailSequenceOpened(false);
 
+    setLoadingStrategy(false);
   }
 
-  const userToken = useRecoilValue(userTokenState);
   const currentProject = useRecoilValue(currentProjectState);
 
   const { getAllStrategies, patchUpdateStrategy } = useStrategiesApi(userToken);
 
   const handleStrategy = async () => {
+    setHandlingStrategy(true);
     const response = await getAllStrategies();
     setStrategyOptions(response);
+
+    if (innerProps.strategy_id){
+      await fillInFromStrategy(response.find((strategy: Strategy) => strategy.id === innerProps.strategy_id));
+    }
+
+    setHandlingStrategy(false);
+
   };
 
   // const [strategies, setStrategies] = useState([
@@ -370,6 +618,50 @@ const [strategyOptions, setStrategyOptions] = useState<Strategy[]>([]);
     }
   }, [defaultPersonas.current]);
 
+
+  if (hasSequences) {
+    return (
+      <Paper
+        p="md"
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          height: '100%',
+          backgroundColor: theme.colorScheme === "dark" ? theme.colors.dark[7] : theme.white,
+          position: 'relative',
+        }}
+      >
+        <Box
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            border: `1px solid ${theme.colors.gray[4]}`,
+            borderRadius: theme.radius.md,
+            padding: theme.spacing.md,
+            backgroundColor: theme.colorScheme === "dark" ? theme.colors.dark[6] : theme.colors.gray[0],
+          }}
+        >
+          <IconCircleCheck size={24} color={theme.colors.green[6]} />
+          <Text ml="sm" size="md" weight={500}>
+            Sequences generated successfully!
+          </Text>
+        </Box>
+        <Button
+          style={{
+            position: 'absolute',
+            bottom: theme.spacing.md,
+            right: theme.spacing.md,
+          }}
+          onClick={() => setHasSequences(false)}
+        >
+          Regenerate
+        </Button>
+      </Paper>
+    );
+  }
+
   return (
     <Paper
       p={0}
@@ -378,7 +670,8 @@ const [strategyOptions, setStrategyOptions] = useState<Strategy[]>([]);
         backgroundColor: theme.colorScheme === "dark" ? theme.colors.dark[7] : theme.white,
       }}
     >
-      <SegmentedControl
+      <LoadingOverlay visible={handlingStrategy}/>
+      {!window.location.href.includes('selix') && <SegmentedControl
         size="sm"
         w={"100%"}
         value={tab}
@@ -414,7 +707,7 @@ const [strategyOptions, setStrategyOptions] = useState<Strategy[]>([]);
             ),
           },
         ]}
-      />
+      />}
       {tab === "scratch" ? (
         <Stack spacing="xs" mt={"md"}>
           {/* <Text color="gray" size={"sm"}>
@@ -446,7 +739,11 @@ const [strategyOptions, setStrategyOptions] = useState<Strategy[]>([]);
 
                 {window.location.href.includes('/campaigns') && <TextInput
                   placeholder="eg. C-Suite Sales Leaders in tech companies"
-                  label={<Text mb="xs" size="lg">Campaign Name</Text>}
+                  label={
+                    <Text mb="xs" size="lg">
+                      Campaign Name{createdPersona.length < 1 && <span style={{ color: 'red' }}> *</span>}
+                    </Text>
+                  }
                   value={createdPersona}
                   onChange={(e) =>
                   {
@@ -457,6 +754,56 @@ const [strategyOptions, setStrategyOptions] = useState<Strategy[]>([]);
                   <Text size={"md"} fw={500} mb={-8}>
                     Campaign Automations
                   </Text>
+                  {(((window.location.href.includes('selix')) && currentProject?.id) || window.location.href.includes('campaigns')) && <>
+                  {!fetchingSegments ? (
+                  <Select
+                    style={{ minWidth: "500px", transition: "all 0.3s ease-in-out" }}
+                    withinPortal
+                    mt={"sm"}
+                    data={segmentOptions.map((segment) => ({
+                      value: segment.id.toString(),
+                      label: segment.segment_title,
+                    }))}
+                    label={selectedSegmentId ? null : <Text color="red">No Segment Attached</Text>}
+                    placeholder="Attach a segment"
+                    value={selectedSegmentId.toString()}
+                    searchable
+                    getCreateLabel={(query) => `+ Create ${query}`}
+                    onCreate={(query) => {
+                      getAllSegments(false)
+                      // doStuff(query, row);
+                      return null
+                    }}
+                    onChange={(value) => {
+                      console.log('value changed', value);
+                      // updateIcpRoute(row.icpRouteId || -1, {
+                      //   segment_id: value ? parseInt(value) : undefined,
+                      // });
+                      // row.segment_id = value ? parseInt(value) : undefined;
+                      showNotification({
+                        title: "Success",
+                        message: "Segment attached successfully",
+                        color: "green",
+                        icon: <IconCheck />,
+                      });
+                      // unfocus the select
+                      setTimeout(() => {
+                        (document.activeElement as HTMLElement)?.blur();
+                      }, 0);
+                      getAllSegments(false);
+                      setSelectedSegmentId(parseInt(value || ''));
+                    }}
+                    onDropdownOpen={() => {
+                      console.log('Dropdown opened');
+                    }}
+                    onDropdownClose={() => {
+                      console.log('Dropdown closed');
+                    }}
+                  />
+                ) : (
+                  <Loader size="sm" />
+                )}
+                </>}
                   {window.location.href.includes('/campaigns') &&  <Paper withBorder p="sm">
                   <Switch
                     onChange={() => setFindSampleProspects(!findSampleProspects)}
@@ -497,6 +844,76 @@ const [strategyOptions, setStrategyOptions] = useState<Strategy[]>([]);
                     </Accordion>
                   )}
                   </Paper>}
+                  
+                  
+
+                  <Paper withBorder p="md">
+                    <Flex align="center" style={{ marginBottom: '8px', justifyContent: 'space-between', width: '100%' }}>
+                      <div style={{ display: 'flex', alignItems: 'center' }}>
+                        <IconLayoutBoard size={"1.4rem"} fill="#228be6" color="white" style={{ marginRight: '8px' }} />
+                        <Text fw={500} size={"sm"}>
+                          Assets
+                        </Text>
+                      </div>
+                      <Switch
+                        checked={isListOpen}
+                        onChange={() => setIsListOpen(!isListOpen)}
+                        styles={{
+                          root: {
+                            marginTop: '8px',
+                          },
+                        }}
+                      />
+                    </Flex>
+                    {isListOpen && assets.length > 0 && (
+                      <ScrollArea style={{ height: 200 }}>
+                        <Accordion mt={4}>
+                          <TextInput
+                            placeholder="Search assets"
+                            onChange={(e) => setAssetSearch(e.currentTarget.value)}
+                            mb={4}
+                          />
+                          <Table>
+                            <tbody>
+                              {assets
+                                .filter(asset => assetMatchesSearchCriteria(asset)) // Assuming assetMatchesSearchCriteria is a function that filters assets based on search criteria
+                                .sort((a, b) => {
+                                  const aSendRate = a.num_sends === 0 ? 0 : a.num_opens / a.num_sends;
+                                  const bSendRate = b.num_sends === 0 ? 0 : b.num_opens / b.num_sends;
+                                  return bSendRate - aSendRate;
+                                })
+                                .map((asset, index) => (
+                                  <tr key={asset.id}>
+                                    <td>
+                                      <Checkbox 
+                                        checked={checkedStates[index] || false} 
+                                        onChange={(e) => handleCheckboxChange(e.target.checked, index, asset.id)}
+                                      />
+                                    </td>
+                                    <td>
+                                      <HoverCard withinPortal width={280} shadow="md">
+                                        <HoverCard.Target>
+                                          <Text>
+                                            {asset.asset_key} - <Badge color="green">{isNaN(asset.num_opens / asset.num_sends) || asset.num_sends === 0 ? 0 : ((asset.num_opens / asset.num_sends) * 100).toFixed(2)}%</Badge>
+                                          </Text>
+                                        </HoverCard.Target>
+                                        <HoverCard.Dropdown>
+                                          <Text size="sm">{asset.asset_raw_value}</Text>
+                                        </HoverCard.Dropdown>
+                                      </HoverCard>
+                                    </td>
+                                    <td>
+                                      <Badge>{asset.asset_type}</Badge>
+                                      {asset.asset_tag.length > 0 && asset.asset_tag && <Badge color="grape">{asset.asset_tag}</Badge>}
+                                    </td>
+                                  </tr>
+                                ))}
+                            </tbody>
+                          </Table>
+                        </Accordion>
+                      </ScrollArea>
+                    )}
+                  </Paper>
                    <Paper withBorder p="md">
                   <div style={{ display: 'flex', alignItems: 'center', width: '100%' }}>
                     <Flex direction="column" gap={"xs"} align={"flex-start"} w="100%" justify="flex-start">
@@ -531,8 +948,8 @@ const [strategyOptions, setStrategyOptions] = useState<Strategy[]>([]);
                           placeholder="# Steps"
                           label="# Steps"
                           withAsterisk
-                          onChange={(e) => setNumSteps(+e)}
-                          value={numSteps}
+                          onChange={(e) => setNumStepsEmail(+e)}
+                          value={numStepsEmail}
                           width={'30%'}
                         />
                         <NumberInput
@@ -540,8 +957,8 @@ const [strategyOptions, setStrategyOptions] = useState<Strategy[]>([]);
                           placeholder="# Variants Per Step"
                           label="# Variants Per Step"
                           withAsterisk
-                          onChange={(e) => setNumVariance(+e)}
-                          value={numVariance}
+                          onChange={(e) => setNumVarianceEmail(+e)}
+                          value={numVarianceEmail}
                           width={'30%'}
                         />
                         <TextInput
@@ -582,35 +999,100 @@ const [strategyOptions, setStrategyOptions] = useState<Strategy[]>([]);
                         />
                         <Collapse in={emailSequenceOpened}>
                           <Box>
-                            <Text size="sm" fw={500}>
-                              Include Templates
-                            </Text>
-                            <SimpleGrid mb="sm" cols={2} mt="xs">
-                              <Checkbox 
-                                size="xs" 
-                                label="How it works" 
-                                checked={emailSequenceState.howItWorks}
-                                onChange={(e) => setEmailSequenceState({ ...emailSequenceState, howItWorks: e.currentTarget.checked })}
-                              />
-                              <Checkbox 
-                                size="xs" 
-                                label="Vary intro messages" 
-                                checked={emailSequenceState.varyIntroMessages}
-                                onChange={(e) => setEmailSequenceState({ ...emailSequenceState, varyIntroMessages: e.currentTarget.checked })}
-                              />
-                              <Checkbox 
-                                size="xs" 
-                                label="Breakup message" 
-                                checked={emailSequenceState.breakupMessage}
-                                onChange={(e) => setEmailSequenceState({ ...emailSequenceState, breakupMessage: e.currentTarget.checked })}
-                              />
-                              <Checkbox 
-                                size="xs" 
-                                label="Unique offer" 
-                                checked={emailSequenceState.uniqueOffer}
-                                onChange={(e) => setEmailSequenceState({ ...emailSequenceState, uniqueOffer: e.currentTarget.checked })}
-                              />
-                            </SimpleGrid>
+                            <Table>
+                              <thead>
+                                <tr>
+                                  <th>Beginning</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                <tr>
+                                  <td>
+                                    <HoverCard width={280} shadow="md">
+                                      <HoverCard.Target>
+                                        <Checkbox 
+                                          size="xs" 
+                                          label="Vary intro messages" 
+                                          checked={emailSequenceStateRaw.varyIntroMessages}
+                                          onChange={(e) => setEmailSequenceState({ ...emailSequenceStateRaw, varyIntroMessages: e.currentTarget.checked })}
+                                        />
+                                      </HoverCard.Target>
+                                      <HoverCard.Dropdown>
+                                        <Text size="sm">The first message will contain various creative angles.</Text>
+                                      </HoverCard.Dropdown>
+                                    </HoverCard>
+                                  </td>
+                                </tr>
+                              </tbody>
+                            </Table>
+                            <Table>
+                              <thead>
+                                <tr>
+                                  <th>Middle</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                <tr>
+                                  <td>
+                                    <HoverCard width={280} shadow="md">
+                                      <HoverCard.Target>
+                                        <Checkbox 
+                                          size="xs" 
+                                          label="Unique offer" 
+                                          checked={emailSequenceStateRaw.uniqueOffer}
+                                          onChange={(e) => setEmailSequenceState({ ...emailSequenceStateRaw, uniqueOffer: e.currentTarget.checked })}
+                                        />
+                                      </HoverCard.Target>
+                                      <HoverCard.Dropdown>
+                                        <Text size="sm">One of the message variants will contain a unique offer relevant to your business.</Text>
+                                      </HoverCard.Dropdown>
+                                    </HoverCard>
+                                  </td>
+                                
+                                  <td>
+                                    <HoverCard width={280} shadow="md">
+                                      <HoverCard.Target>
+                                        <Checkbox 
+                                          size="xs" 
+                                          label="How it works" 
+                                          checked={emailSequenceStateRaw.howItWorks}
+                                          onChange={(e) => setEmailSequenceState({ ...emailSequenceStateRaw, howItWorks: e.currentTarget.checked })}
+                                        />
+                                      </HoverCard.Target>
+                                      <HoverCard.Dropdown>
+                                        <Text size="sm">One of the messages will be a description on how it works. This is nice because it gives the prospect a better understanding of what you do.</Text>
+                                      </HoverCard.Dropdown>
+                                    </HoverCard>
+                                  </td>
+                                </tr>
+                              </tbody>
+                            </Table>
+                            <Table>
+                              <thead>
+                                <tr>
+                                  <th>End</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                <tr>
+                                  <td>
+                                    <HoverCard width={280} shadow="md">
+                                      <HoverCard.Target>
+                                        <Checkbox 
+                                          size="xs" 
+                                          label="Breakup message" 
+                                          checked={emailSequenceStateRaw.breakupMessage}
+                                          onChange={(e) => setEmailSequenceState({ ...emailSequenceStateRaw, breakupMessage: e.currentTarget.checked })}
+                                        />
+                                      </HoverCard.Target>
+                                      <HoverCard.Dropdown>
+                                        <Text size="sm">One of the variants in the last step will be a "breakup" message.</Text>
+                                      </HoverCard.Dropdown>
+                                    </HoverCard>
+                                  </td>
+                                </tr>
+                              </tbody>
+                            </Table>
                           </Box>
                         </Collapse>
                       </Stack>
@@ -651,8 +1133,8 @@ const [strategyOptions, setStrategyOptions] = useState<Strategy[]>([]);
                           placeholder="# Steps"
                           label="# Steps"
                           withAsterisk
-                          onChange={(e) => setNumSteps(+e)}
-                          value={numSteps}
+                          onChange={(e) => setNumStepsLinkedin(+e)}
+                          value={numStepsLinkedin}
                           width={'30%'}
                         />
                         <NumberInput
@@ -660,8 +1142,8 @@ const [strategyOptions, setStrategyOptions] = useState<Strategy[]>([]);
                           placeholder="# Variance Per Step"
                           label="# Variance Per Step"
                           withAsterisk
-                          onChange={(e) => setNumVariance(+e)}
-                          value={numVariance}
+                          onChange={(e) => setNumVarianceLinkedin(+e)}
+                          value={numVarianceLinkedin}
                           width={'30%'}
                         />
                         <TextInput
@@ -764,32 +1246,122 @@ const [strategyOptions, setStrategyOptions] = useState<Strategy[]>([]);
                             <Text size="sm" fw={500}>
                               Include Templates
                             </Text>
-                            <SimpleGrid mb="sm" cols={2} mt="xs">
-                              <Checkbox 
-                                size="xs" 
-                                label="How it works" 
-                                checked={liSequenceState.howItWorks}
-                                onChange={(e) => setLiSequenceState({ ...liSequenceState, howItWorks: e.currentTarget.checked })}
-                              />
-                              <Checkbox 
-                                size="xs" 
-                                label="Vary intro messages" 
-                                checked={liSequenceState.varyIntroMessages}
-                                onChange={(e) => setLiSequenceState({ ...liSequenceState, varyIntroMessages: e.currentTarget.checked })}
-                              />
-                              <Checkbox 
-                                size="xs" 
-                                label="Breakup message" 
-                                checked={liSequenceState.breakupMessage}
-                                onChange={(e) => setLiSequenceState({ ...liSequenceState, breakupMessage: e.currentTarget.checked })}
-                              />
-                              <Checkbox 
-                                size="xs" 
-                                label="Unique offer" 
-                                checked={liSequenceState.uniqueOffer}
-                                onChange={(e) => setLiSequenceState({ ...liSequenceState, uniqueOffer: e.currentTarget.checked })}
-                              />
-                            </SimpleGrid>
+                            <Box>
+                              <Table>
+                                <thead>
+                                  <tr>
+                                    <th>Beginning</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  <tr>
+                                    <td>
+                                    <HoverCard width={280} shadow="md">
+                                        <HoverCard.Target>
+                                          <Checkbox
+                                            size="xs"
+                                            label="Vary intro messages"
+                                            checked={liSequenceState.varyIntroMessages}
+                                            onChange={(e) =>
+                                              setLiSequenceState({
+                                                ...liSequenceState,
+                                                varyIntroMessages: e.currentTarget.checked,
+                                              })
+                                            }
+                                          />
+                                        </HoverCard.Target>
+                                        <HoverCard.Dropdown>
+                                          <Text size="sm">The first message will contain various creative angles.</Text>
+                                        </HoverCard.Dropdown>
+                                      </HoverCard>
+                                      
+                                    </td>
+                                  </tr>
+                                </tbody>
+                              </Table>
+                              <Table>
+                                <thead>
+                                  <tr>
+                                    <th>Middle</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  <tr>
+                                    <td>
+                                    <HoverCard width={280} shadow="md">
+                                        <HoverCard.Target>
+                                          <Checkbox
+                                            size="xs"
+                                            label="How it works"
+                                            checked={liSequenceState.howItWorks}
+                                            onChange={(e) =>
+                                              setLiSequenceState({
+                                                ...liSequenceState,
+                                                howItWorks: e.currentTarget.checked,
+                                              })
+                                            }
+                                          />
+                                        </HoverCard.Target>
+                                        <HoverCard.Dropdown>
+                                          <Text size="sm">One of the messages will be a description on how it works. This is nice because it gives the prospect a better understanding of what you do.</Text>
+                                        </HoverCard.Dropdown>
+                                      </HoverCard>
+                                    </td>
+                                    <td>
+                                      <HoverCard width={280} shadow="md">
+                                        <HoverCard.Target>
+                                          <Checkbox
+                                            size="xs"
+                                            label="Unique offer"
+                                            checked={liSequenceState.uniqueOffer}
+                                            onChange={(e) =>
+                                              setLiSequenceState({
+                                                ...liSequenceState,
+                                                uniqueOffer: e.currentTarget.checked,
+                                              })
+                                            }
+                                          />
+                                        </HoverCard.Target>
+                                        <HoverCard.Dropdown>
+                                          <Text size="sm">One of the message variants will contain a unique offer relevant to your business.</Text>
+                                        </HoverCard.Dropdown>
+                                      </HoverCard>
+                                    </td>
+                                  </tr>
+                                </tbody>
+                              </Table>
+                              <Table>
+                                <thead>
+                                  <tr>
+                                    <th>End</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  <tr>
+                                    <td>
+                                      <HoverCard width={280} shadow="md">
+                                        <HoverCard.Target>
+                                          <Checkbox
+                                            size="xs"
+                                            label="Breakup message"
+                                            checked={liSequenceState.breakupMessage}
+                                            onChange={(e) =>
+                                              setLiSequenceState({
+                                                ...liSequenceState,
+                                                breakupMessage: e.currentTarget.checked,
+                                              })
+                                            }
+                                          />
+                                        </HoverCard.Target>
+                                        <HoverCard.Dropdown>
+                                          <Text size="sm">One of the variants in the last step will be a "breakup" message.</Text>
+                                        </HoverCard.Dropdown>
+                                      </HoverCard>
+                                    </td>
+                                  </tr>
+                                </tbody>
+                              </Table>
+                            </Box>
                           </Box>
                         </Collapse>
                       </Stack>
@@ -880,8 +1452,9 @@ const [strategyOptions, setStrategyOptions] = useState<Strategy[]>([]);
               contractSize: personaContractSize,
               templateMode: templateMode === "template",
               connectedStrategyId: connectedStrategy ? connectedStrategy.id : undefined,
-              override_archetype_id: window.location.href.includes('/campaign_v2') ? currentProject?.id : undefined,
+              override_archetype_id: (window.location.href.includes('/campaign_v2') || window.location.href.includes('selix')) ? currentProject?.id : undefined,
               purpose,
+              selectedSegmentId: selectedSegmentId,
               autoGenerationPayload : {
               findSampleProspects,
               writeEmailSequenceDraft,
@@ -898,12 +1471,15 @@ const [strategyOptions, setStrategyOptions] = useState<Strategy[]>([]);
               emailAssetIngestor,
               withData,
               selectedVoice: selectedVoice ? +selectedVoice : undefined,
-              numSteps,
-              numVariance,
+              numStepsEmail,
+              numStepsLinkedin,
+              numVarianceEmail,
+              numVarianceLinkedin,
               liPainPoint,
               liSequenceState,
-              emailSequenceState,
+              emailSequenceState: emailSequenceStateRaw,
             },
+            assetIds: includedAssetIdArray,
             }}
           />
         </Stack>

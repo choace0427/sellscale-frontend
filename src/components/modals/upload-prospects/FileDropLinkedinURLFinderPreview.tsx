@@ -13,42 +13,81 @@ import {
   HoverCard,
   List,
   LoadingOverlay,
-  Table, Checkbox, Space, Modal, Accordion,
+  Table,
+  Checkbox,
+  Space,
+  Modal,
+  Accordion,
+  Popover,
+  Input,
+  TextInput,
+  Textarea,
+  Avatar,
+  Badge,
+  Anchor,
 } from "@mantine/core";
 import { Dropzone, MIME_TYPES } from "@mantine/dropzone";
-import {useDisclosure } from "@mantine/hooks";
+import { useDisclosure } from "@mantine/hooks";
 import { showNotification } from "@mantine/notifications";
 import {
   IconUpload,
   IconX,
   IconTrashX,
-  } from "@tabler/icons";
+  IconLetterT,
+  IconBuilding,
+  IconUser,
+  IconClock,
+  IconTargetArrow,
+  IconLoader,
+  IconToggleRight,
+} from "@tabler/icons";
 import { convertFileToJSON } from "@utils/fileProcessing";
 import createPersona from "@utils/requests/createPersona";
-import uploadProspects, {getDuplicateProspects} from "@utils/requests/uploadProspects";
+import uploadProspects, {
+  getDuplicateProspects,
+} from "@utils/requests/uploadProspects";
 import _ from "lodash";
 import { DataTable } from "mantine-datatable";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useMemo, useCallback } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { useRecoilValue } from "recoil";
+import { useRecoilState, useRecoilValue } from "recoil";
 import { QueryCache } from "@tanstack/react-query";
 import { MaxHeap } from "@datastructures-js/heap";
+import { DataGrid } from "mantine-data-grid";
+import { a } from "react-spring";
+import { FilterVariant } from "@modals/ContactAccountFilterModal";
+import { MantineReactTable, useMantineReactTable } from "mantine-react-table";
+import {
+  prospectUploadDrawerIdState,
+  prospectUploadDrawerOpenState,
+} from "@atoms/uploadAtoms";
+import UploadDetailsDrawer from "@drawers/UploadDetailsDrawer";
 
 const MAX_FILE_SIZE_MB = 2;
 const PREVIEW_FIRST_N_ROWS = 5;
-const PROSPECT_DB_COLUMNS = [
-  "company",
-  "full_name",
-  "first_name",
-  "last_name",
-  "title",
-  "override",
-  "linkedin_url",
-  "email",
-];
+
+export interface DuplicateProspects {
+  archetype: string; // "Early Startup Founders Template"
+  archetype_id: number; // 1416
+  client_id: number; // 1
+  client_sdr_id: number; // 2
+  company: string; // "HCLTech"
+  full_name: string; // "Etika Srivastava"
+  linkedin_url: string; // "linkedin.com/in/etika-srivastava-0827b516b"
+  override: boolean; // false
+  previous_outreach_email: boolean; // false
+  previous_outreach_linkedin: boolean; // false
+  row: number; // 0
+  sdr: string; // "Ishan Sharma"
+  segment_id: number; // 1315
+  segment_title: string; // "Testing transfer personalizer"
+  status: string; // "PROSPECTED"
+  title: string; // "Talent Acquisition Recruiter"
+  twitter_url?: string; // null,
+  same_archetype?: boolean;
+}
 
 function findBestPreviewRows(fileJSON: any[], previewAmount: number) {
-
   // Sort the file rows by the number of columns they have
   const mostColumns = new MaxHeap((row: any) => Object.keys(row).length);
   fileJSON.forEach((row) => mostColumns.insert(row));
@@ -57,21 +96,24 @@ function findBestPreviewRows(fileJSON: any[], previewAmount: number) {
   const bestRows = [];
   for (let i = 0; i < previewAmount; i++) {
     const row = mostColumns.pop();
-    if(row) {
+    if (row) {
       bestRows.push(row);
     }
   }
   return bestRows;
 }
 
-function getDefaultColumnMappings(fileJSON: any[]) {
+function getDefaultColumnMappings(
+  fileJSON: any[],
+  prospectDBColumns: string[]
+) {
   const map = new Map<string, string>();
   if (fileJSON.length === 0) return map;
   Object.keys(findBestPreviewRows(fileJSON, 1)[0] || {})
     .filter((key) => key !== "id")
     .forEach((key) => {
       const convertedKey = convertColumn(key);
-      const defaultValue = PROSPECT_DB_COLUMNS.includes(convertedKey)
+      const defaultValue = prospectDBColumns.includes(convertedKey)
         ? convertedKey
         : "none";
       map.set(key.trim(), defaultValue);
@@ -83,7 +125,8 @@ function getDefaultColumnMappings(fileJSON: any[]) {
 function determineColumns(
   columnMappings: Map<string, string>,
   setColumnMappings: React.Dispatch<React.SetStateAction<Map<string, string>>>,
-  fileJSON: any[]
+  fileJSON: any[],
+  prospectDBColumns: string[]
 ) {
   if (fileJSON.length === 0) return [];
   return Object.keys(findBestPreviewRows(fileJSON, 1)[0] || {})
@@ -98,7 +141,7 @@ function determineColumns(
               value={columnMappings.get(key.trim())}
               data={[
                 { label: "-", value: "none", group: "Skipped" },
-                ...PROSPECT_DB_COLUMNS.map((column) => {
+                ...prospectDBColumns.map((column) => {
                   return {
                     label: _.startCase(column.replace("_", " ")).replace(
                       "Url",
@@ -124,7 +167,11 @@ function determineColumns(
           </Stack>
         ),
         render: (value: any) => {
-          return <Text sx={{ wordBreak: "break-word" }}>{_.truncate(value[key], {length: 60})}</Text>;
+          return (
+            <Text sx={{ wordBreak: "break-word" }}>
+              {_.truncate(value[key], { length: 60 })}
+            </Text>
+          );
         },
       };
     });
@@ -154,7 +201,9 @@ type FileDropAndPreviewProps = {
 };
 
 // personaId is null if creating a new persona
-export default function FileDropLinkedinURLFinderPreview(props: FileDropAndPreviewProps) {
+export default function FileDropLinkedinURLFinderPreview(
+  props: FileDropAndPreviewProps
+) {
   const theme = useMantineTheme();
   const queryClient = useQueryClient();
   const userToken = useRecoilValue(userTokenState);
@@ -163,16 +212,39 @@ export default function FileDropLinkedinURLFinderPreview(props: FileDropAndPrevi
     new Map()
   );
 
-  const [duplicateProspects, setDuplicateProspects] = useState<any[] | null>(null);
+  const [duplicateProspects, setDuplicateProspects] = useState<
+    DuplicateProspects[] | null
+  >(null);
+
+  const [_, setOpened] = useRecoilState(prospectUploadDrawerOpenState);
+  const [uploadID, setUploadID] = useRecoilState(prospectUploadDrawerIdState);
+
+  const [prospectDBColumns, setProspectDBColumns] = useState<string[]>([
+    "company",
+    "full_name",
+    "first_name",
+    "last_name",
+    "title",
+    "override",
+    "linkedin_url",
+    "email",
+  ]);
+
+  const [customDataColumnName, setCustomDataColumnName] = useState<
+    string | undefined
+  >();
 
   const [preUploading, setPreUploading] = useState(false);
   const queryCache = new QueryCache();
 
   const [loading, setLoading] = useState(true);
 
+  const [openCreateColumnPopover, setOpenCreateColumnPopover] =
+    useState<boolean>(false);
+
   useEffect(() => {
     if (fileJSON) {
-      setColumnMappings(getDefaultColumnMappings(fileJSON));
+      setColumnMappings(getDefaultColumnMappings(fileJSON, prospectDBColumns));
     }
   }, [fileJSON]);
 
@@ -180,38 +252,40 @@ export default function FileDropLinkedinURLFinderPreview(props: FileDropAndPrevi
     if (fileJSON && columnMappings) {
       getDupProspects();
     }
-  }, [fileJSON, columnMappings])
-
-
-  console.log('duplicateProspects', duplicateProspects);
+  }, [fileJSON, columnMappings]);
 
   const setOverrideAll = (override: boolean, same_archetype: boolean) => {
     if (duplicateProspects) {
-      setDuplicateProspects(prevState => prevState!.map((prospect) => {
-        if (same_archetype) {
-          if (prospect.same_archetype) {
-            return {...prospect, override: override}
-          }
+      setDuplicateProspects((prevState) =>
+        prevState!.map((prospect) => {
+          if (same_archetype) {
+            if (prospect.same_archetype) {
+              return { ...prospect, override: override };
+            }
 
-          return prospect;
-        }
-        else {
-          if (!prospect.same_archetype) {
-            return {...prospect, override: override}
-          }
+            return prospect;
+          } else {
+            if (!prospect.same_archetype) {
+              return { ...prospect, override: override };
+            }
 
-          return prospect;
-        }
-      }))
+            return prospect;
+          }
+        })
+      );
     }
-  }
+  };
 
   const getDupProspects = async () => {
-    if (checkCanUpload().length === 0 || (["full_name", "company"].every((column) => {
-        return Array.from(columnMappings.values()).includes(column)
-      }) || ["first_name", "last_name", "company"].every((column) => {
-        return Array.from(columnMappings.values()).includes(column)
-      }))) {
+    if (
+      checkCanUpload().length === 0 ||
+      ["full_name", "company"].every((column) => {
+        return Array.from(columnMappings.values()).includes(column);
+      }) ||
+      ["first_name", "last_name", "company"].every((column) => {
+        return Array.from(columnMappings.values()).includes(column);
+      })
+    ) {
       setLoading(true);
       const uploadJSON = (fileJSON as any[])
         .map((row) => {
@@ -219,7 +293,7 @@ export default function FileDropLinkedinURLFinderPreview(props: FileDropAndPrevi
           // Only include columns that are mapped to a prospect db column
           Object.keys(row)
             .filter((key) =>
-              PROSPECT_DB_COLUMNS.includes(
+              prospectDBColumns.includes(
                 columnMappings.get(key.trim()) as string
               )
             )
@@ -231,14 +305,24 @@ export default function FileDropLinkedinURLFinderPreview(props: FileDropAndPrevi
           return mappedRow;
           // Remove prospects that don't have a linkedin_url or email column
         })
-        .filter((row: any) => row.linkedin_url || row.email || (row.company && row.full_name) || (row.company && row.first_name && row.last_name));
+        .filter(
+          (row: any) =>
+            row.linkedin_url ||
+            row.email ||
+            (row.company && row.full_name) ||
+            (row.company && row.first_name && row.last_name)
+        );
 
-      const data = await getDuplicateProspects(userToken, uploadJSON ?? [], props.personaId ? +props.personaId : undefined);
+      const data = await getDuplicateProspects(
+        userToken,
+        uploadJSON ?? [],
+        props.personaId ? +props.personaId : undefined
+      );
 
-      setDuplicateProspects(data.data.data);
+      setDuplicateProspects(data.data.data as DuplicateProspects[]);
       setLoading(false);
     }
-  }
+  };
 
   const checkCanUpload = () => {
     const hasScrapeTarget = Array.from(columnMappings.values()).some(
@@ -267,15 +351,15 @@ export default function FileDropLinkedinURLFinderPreview(props: FileDropAndPrevi
     }
     */
 
-    console.log("has Scrape Target: ", hasScrapeTarget);
-    console.log("failure reason: ", failureReasons);
-
     if (!hasScrapeTarget) {
-      if (!["full_name", "company"].every((column) => {
-        return Array.from(columnMappings.values()).includes(column)
-      }) && !["first_name", "last_name", "company"].every((column) => {
-        return Array.from(columnMappings.values()).includes(column)
-      })) {
+      if (
+        !["full_name", "company"].every((column) => {
+          return Array.from(columnMappings.values()).includes(column);
+        }) &&
+        !["first_name", "last_name", "company"].every((column) => {
+          return Array.from(columnMappings.values()).includes(column);
+        })
+      ) {
         failureReasons.push(
           "Please map at least First name, last name or full name, and company columns."
         );
@@ -310,10 +394,12 @@ export default function FileDropLinkedinURLFinderPreview(props: FileDropAndPrevi
     }
 
     const modifiedJSON = fileJSON?.map((prospect) => {
-      const duplicate = duplicateProspects?.find(dup => dup.row === prospect.id);
+      const duplicate = duplicateProspects?.find(
+        (dup) => dup.row === prospect.id
+      );
 
       if (duplicate) {
-        return {...prospect, override: duplicate.override};
+        return { ...prospect, override: duplicate.override };
       }
 
       return prospect;
@@ -325,9 +411,7 @@ export default function FileDropLinkedinURLFinderPreview(props: FileDropAndPrevi
         // Only include columns that are mapped to a prospect db column
         Object.keys(row)
           .filter((key) =>
-            PROSPECT_DB_COLUMNS.includes(
-              columnMappings.get(key.trim()) as string
-            )
+            prospectDBColumns.includes(columnMappings.get(key.trim()) as string)
           )
           .forEach((key) => {
             // Use the mapped prospect db column intead of the original column name
@@ -337,8 +421,13 @@ export default function FileDropLinkedinURLFinderPreview(props: FileDropAndPrevi
         return mappedRow;
         // Remove prospects that don't have a linkedin_url or email column
       })
-      .filter((row: any) => row.linkedin_url || row.email || (row.company && row.full_name) || (row.company && row.first_name && row.last_name));
-
+      .filter(
+        (row: any) =>
+          row.linkedin_url ||
+          row.email ||
+          (row.company && row.full_name) ||
+          (row.company && row.first_name && row.last_name)
+      );
 
     const result = await uploadProspects(
       +(archetype_id as string),
@@ -373,172 +462,491 @@ export default function FileDropLinkedinURLFinderPreview(props: FileDropAndPrevi
 
     close();
     setPreUploading(false);
+
+    if (result.data?.uploadId) {
+      setUploadID(+result.data?.uploadId);
+      setOpened(true);
+    }
     // Invalidates the query for the personas data so that the new persona will be fetched
     queryClient.invalidateQueries({ queryKey: ["query-personas-data"] });
     queryCache.clear();
 
     if (props.onUploadSuccess) {
-      props.onUploadSuccess(parseInt(archetype_id || '-1'));
+      props.onUploadSuccess(parseInt(archetype_id || "-1"));
     }
   };
 
   const [opened, { open, close }] = useDisclosure(false);
 
+  const generatedDuplicateColumns = useMemo(() => {
+    const headers = [
+      { label: "Full Name", id: "full_name" },
+      { label: "Company", id: "company" },
+      { label: "Title", id: "title" },
+      { label: "SDR", id: "sdr" },
+      { label: "Segment", id: "segment" },
+      { label: "Campaign", id: "archetype" },
+      { label: "Status", id: "status" },
+      { label: "Linkedin URL", id: "linkedin_url" },
+      {
+        label: "Previous Campaign: Linkedin",
+        id: "previous_outreach_linkedin",
+      },
+      { label: "Previous Campaign: Email", id: "previous_outreach_email" },
+    ];
+
+    return headers.map((item: any) => {
+      return {
+        header: item.label,
+        accessorKey: item.id,
+        size: 250,
+        enableColumnFilter: item.id === "status",
+        filterVariant: "select" as FilterVariant,
+        filterFn: (row: any, id: any, filterValue: string) => {
+          let value = row.getValue(id);
+
+          return value === filterValue;
+        },
+        mantineFilterSelectProps: {
+          data:
+            item.id === "status"
+              ? [
+                  "PROSPECTED",
+                  "SENT_OUTREACH",
+                  "ACCEPTED",
+                  "BUMPED",
+                  "ACTIVE_CONVO",
+                  "DEMO",
+                  "REMOVED",
+                  "NURTURE",
+                ]
+              : [],
+        },
+        mantineTableBodyCellProps: {
+          sx: {
+            border: `1px black`,
+          },
+        },
+        Header: () => {
+          return (
+            <Flex align={"center"} gap={"3px"}>
+              <Text color="gray">{item.label}</Text>
+            </Flex>
+          );
+        },
+        Cell: ({ cell }: { cell: any }) => {
+          const columnId = cell.column.id;
+          const rowData = cell.row.original;
+
+          switch (columnId) {
+            case "full_name":
+              return (
+                <Flex gap={"xs"} w={"100%"} h={"100%"} align={"center"}>
+                  <Avatar src={"/"} size={"md"} radius={"xl"} />
+                  <Text fw={500}>{rowData.full_name}</Text>
+                </Flex>
+              );
+
+            case "company":
+              return (
+                <Flex
+                  align={"center"}
+                  gap={"xs"}
+                  py={"sm"}
+                  w={"100%"}
+                  h={"100%"}
+                >
+                  <Text fw={500}>{rowData.company}</Text>
+                </Flex>
+              );
+
+            case "title":
+              return (
+                <Flex gap={"xs"} w={"100%"} h={"100%"} align={"center"}>
+                  <Text fw={500} lineClamp={2} maw={200}>
+                    {rowData.title}
+                  </Text>
+                </Flex>
+              );
+
+            case "sdr":
+              return (
+                <Flex
+                  align={"center"}
+                  gap={"xs"}
+                  py={"sm"}
+                  w={"100%"}
+                  h={"100%"}
+                >
+                  <Text fw={500}>{rowData.sdr}</Text>
+                </Flex>
+              );
+
+            case "segment":
+              return (
+                <Flex
+                  align={"center"}
+                  gap={"xs"}
+                  py={"sm"}
+                  w={"100%"}
+                  h={"100%"}
+                >
+                  <Text fw={500}>
+                    {rowData.segment_title ? rowData.segment_title : "None"}
+                  </Text>
+                </Flex>
+              );
+
+            case "archetype":
+              return (
+                <Flex
+                  align={"center"}
+                  gap={"xs"}
+                  py={"sm"}
+                  w={"100%"}
+                  h={"100%"}
+                >
+                  <Text fw={500}>{rowData.archetype}</Text>
+                </Flex>
+              );
+
+            case "status":
+              return (
+                <Flex
+                  align={"center"}
+                  gap={"xs"}
+                  py={"sm"}
+                  w={"100%"}
+                  h={"100%"}
+                >
+                  <Badge>{rowData.status}</Badge>
+                </Flex>
+              );
+
+            case "linkedin_url":
+              return (
+                <Flex
+                  align={"center"}
+                  gap={"xs"}
+                  py={"sm"}
+                  w={"100%"}
+                  h={"100%"}
+                >
+                  <Anchor
+                    href={`https://${rowData.linkedin_url}`}
+                    target="_blank"
+                  >
+                    <Text>{rowData.linkedin_url}</Text>
+                  </Anchor>
+                </Flex>
+              );
+
+            case "previous_outreach_linkedin":
+              return (
+                <Flex
+                  align={"center"}
+                  gap={"xs"}
+                  py={"sm"}
+                  w={"100%"}
+                  h={"100%"}
+                >
+                  {rowData.previous_outreach_linkedin ? (
+                    <Badge color={"green"} variant={"outline"}>
+                      True
+                    </Badge>
+                  ) : (
+                    <Badge color={"red"} variant={"outline"}>
+                      False
+                    </Badge>
+                  )}
+                </Flex>
+              );
+
+            case "previous_outreach_email":
+              return (
+                <Flex
+                  align={"center"}
+                  gap={"xs"}
+                  py={"sm"}
+                  w={"100%"}
+                  h={"100%"}
+                >
+                  {rowData.previous_outreach_email ? (
+                    <Badge color={"green"} variant={"outline"}>
+                      True
+                    </Badge>
+                  ) : (
+                    <Badge color={"red"} variant={"outline"}>
+                      False
+                    </Badge>
+                  )}
+                </Flex>
+              );
+
+            default:
+              return null;
+          }
+        },
+      };
+    });
+  }, []);
+
+  const sameArchetype = useMemo(() => {
+    return duplicateProspects?.filter((item) => item.same_archetype) ?? [];
+  }, [duplicateProspects]);
+
+  const sameArchetypeTable = useMantineReactTable({
+    columns: generatedDuplicateColumns,
+    data: sameArchetype,
+    getRowId: (row) => "" + row.row,
+    enableRowSelection: true,
+    enableBottomToolbar: true,
+    enableTopToolbar: false,
+    enableStickyHeader: true,
+    enableStickyFooter: true,
+    enableColumnResizing: true,
+    mantineTableHeadRowProps: {
+      sx: {
+        shadow: "none",
+        boxShadow: "none",
+      },
+    },
+    mantineTableProps: {
+      sx: {
+        borderCollapse: "separate",
+        border: "none",
+        borderSpacing: "0px 0px",
+      },
+      withColumnBorders: true,
+    },
+    mantineTableBodyCellProps: ({ row }) => {
+      return {
+        style: {
+          backgroundColor: duplicateProspects?.find(
+            (item) => item.row === +row.id
+          )?.override
+            ? "cyan"
+            : undefined,
+        },
+      };
+    },
+    mantineSelectAllCheckboxProps: {
+      indeterminate: !duplicateProspects?.every((item) => item.override),
+      checked: duplicateProspects?.every((item) => item.override),
+      onChange: (e) => {
+        if (!e.currentTarget.checked) {
+          console.log("testing got here: ");
+          setDuplicateProspects((prevState) =>
+            prevState
+              ? prevState.map((item) => {
+                  return { ...item, override: true };
+                })
+              : []
+          );
+        } else {
+          setDuplicateProspects((prevState) =>
+            prevState
+              ? prevState.map((item) => {
+                  return { ...item, override: false };
+                })
+              : []
+          );
+        }
+      },
+    },
+    mantineSelectCheckboxProps: ({ row }) => {
+      return {
+        checked: duplicateProspects?.find((item) => item.row === +row.id)
+          ?.override,
+        onChange: (e) => {
+          if (!e.currentTarget.checked) {
+            setDuplicateProspects((prevState) => {
+              if (!prevState) {
+                return [];
+              }
+              return prevState.map((item) => {
+                if (item.row === +row.id) {
+                  return { ...item, override: false };
+                } else {
+                  return item;
+                }
+              });
+            });
+          } else {
+            setDuplicateProspects((prevState) => {
+              if (!prevState) {
+                return [];
+              }
+              return prevState.map((item) => {
+                if (item.row === +row.id) {
+                  return { ...item, override: true };
+                } else {
+                  return item;
+                }
+              });
+            });
+          }
+        },
+      };
+    },
+  });
+
+  const differentArchetype = useMemo(() => {
+    return duplicateProspects?.filter((item) => !item.same_archetype) ?? [];
+  }, [duplicateProspects]);
+
+  const differentArchetypeTable = useMantineReactTable({
+    columns: generatedDuplicateColumns,
+    data: differentArchetype,
+    enableRowSelection: true,
+    getRowId: (row) => "" + row.row,
+    mantineTableContainerProps: {
+      sx: {
+        maxHeight: "540px",
+      },
+    },
+    enableBottomToolbar: true,
+    enableTopToolbar: false,
+    enableStickyHeader: true,
+    enableStickyFooter: true,
+    enableColumnResizing: true,
+    mantineTableHeadRowProps: {
+      sx: {
+        shadow: "none",
+        boxShadow: "none",
+      },
+    },
+    mantineTableProps: {
+      sx: {
+        borderCollapse: "separate",
+        border: "none",
+        borderSpacing: "0px 0px",
+      },
+      withColumnBorders: true,
+    },
+    mantineTableBodyCellProps: ({ row }) => {
+      return {
+        style: {
+          backgroundColor: duplicateProspects?.find(
+            (item) => item.row === +row.id
+          )?.override
+            ? "cyan"
+            : undefined,
+        },
+      };
+    },
+    mantineSelectAllCheckboxProps: {
+      indeterminate: !duplicateProspects?.every((item) => item.override),
+      checked: duplicateProspects?.every((item) => item.override),
+      onChange: (e: any) => {
+        if (!e.currentTarget.checked) {
+          setDuplicateProspects((prevState) =>
+            prevState
+              ? prevState.map((item) => {
+                  return { ...item, override: false };
+                })
+              : []
+          );
+        } else {
+          setDuplicateProspects((prevState) =>
+            prevState
+              ? prevState.map((item) => {
+                  return { ...item, override: true };
+                })
+              : []
+          );
+        }
+      },
+    },
+    mantineSelectCheckboxProps: ({ row }) => {
+      return {
+        checked: duplicateProspects?.find((item) => item.row === +row.id)
+          ?.override,
+        onChange: (e: any) => {
+          if (!e.currentTarget.checked) {
+            setDuplicateProspects((prevState) => {
+              if (!prevState) {
+                return [];
+              }
+              return prevState.map((item) => {
+                if (item.row === +row.id) {
+                  return { ...item, override: false };
+                } else {
+                  return item;
+                }
+              });
+            });
+          } else {
+            setDuplicateProspects((prevState) => {
+              if (!prevState) {
+                return [];
+              }
+              return prevState.map((item) => {
+                if (item.row === +row.id) {
+                  return { ...item, override: true };
+                } else {
+                  return item;
+                }
+              });
+            });
+          }
+        },
+      };
+    },
+  });
+
   return (
     <>
-      <Modal  opened={opened} onClose={close} title="Ready To Upload?" size={'1100px'}>
+      <Modal
+        opened={opened}
+        onClose={close}
+        title="Ready To Upload?"
+        size={"1100px"}
+      >
         <LoadingOverlay visible={preUploading} />
-        {duplicateProspects && duplicateProspects.length !== 0 &&<>
-            <Text>We have found some prospects that are already added to your prospect database.</Text>
-            <Text>Please check the prospects that you want to overwrite and move to your new segment/campaign.</Text>
+        {duplicateProspects && duplicateProspects.length !== 0 && (
+          <>
+            <Text>
+              We have found some prospects that are already added to your
+              prospect database.
+            </Text>
+            <Text>
+              Please check the prospects that you want to overwrite and move to
+              your new segment/campaign.
+            </Text>
             <Text>We will also reset the prospect's status</Text>
-            <Space h={'xl'} />
+            <Space h={"xl"} />
             <Text>Click "Yes, let's do it! 🚀" whenever you are ready.</Text>
-            <Space h={'xl'} />
+            <Space h={"xl"} />
 
-            <Accordion variant={'separated'} defaultValue={'duplicate-different-archetypes'}>
-                <Accordion.Item value={'duplicate-different-archetypes'}>
-                    <Accordion.Control>Prospects from different campaigns</Accordion.Control>
-                    <Accordion.Panel>
-                        <Table>
-                            <thead>
-                            <tr>
-                                <th>
-                                    <Checkbox onChange={(event) => setOverrideAll(event.currentTarget.checked, false)}
-                                              checked={duplicateProspects.filter(item => !item.same_archetype).every(item => item.override)}
-                                    />
-                                </th>
-                                <th>Name</th>
-                                <th>Company</th>
-                                <th>Title</th>
-                                <th>SDR</th>
-                                <th>Segment</th>
-                                <th>Campaign</th>
-                                <th>Status</th>
-                            </tr>
-                            </thead>
-                            <tbody>
-                            {
-                              duplicateProspects.filter(prospect => !prospect.same_archetype).map((prospect) => {
-                                return (
-                                  <tr key={prospect.row}>
-                                    <td>
-                                      <Checkbox checked={prospect.override} onChange={(event) => {
-                                        setDuplicateProspects(prevState => {
-                                          return prevState!.map(item => {
-                                            if (item.row === prospect.row) {
-                                              return {...item, override: event.currentTarget.checked};
-                                            }
-
-                                            return item;
-                                          })
-                                        })
-                                      }}/>
-                                    </td>
-                                    <td>
-                                      {prospect.full_name}
-                                    </td>
-                                    <td>
-                                      {prospect.company}
-                                    </td>
-                                    <td>
-                                      {prospect.title}
-                                    </td>
-                                    <td>
-                                      {prospect.sdr}
-                                    </td>
-                                    <td>
-                                      {prospect.segment_title ?? "None"}
-                                    </td>
-                                    <td>
-                                      {prospect.archetype}
-                                    </td>
-                                    <td>
-                                      {prospect.status}
-                                    </td>
-                                  </tr>
-                                )
-                              })
-                            }
-                            </tbody>
-                        </Table>
-                    </Accordion.Panel>
-                </Accordion.Item>
-                <Accordion.Item value={'duplicate-same-archetypes'}>
-                    <Accordion.Control>Prospects from the current campaign</Accordion.Control>
-                    <Accordion.Panel>
-                        <Table>
-                            <thead>
-                            <tr>
-                                <th>
-                                    <Checkbox onChange={(event) => setOverrideAll(event.currentTarget.checked, true)}
-                                              checked={duplicateProspects.filter(item => item.same_archetype).every(item => item.override)}
-                                    />
-                                </th>
-                                <th>Name</th>
-                                <th>Company</th>
-                                <th>Title</th>
-                                <th>SDR</th>
-                                <th>Segment</th>
-                                <th>Campaign</th>
-                                <th>Status</th>
-                            </tr>
-                            </thead>
-                            <tbody>
-                            {
-                              duplicateProspects.filter(prospect => prospect.same_archetype).map((prospect) => {
-                                return (
-                                  <tr key={prospect.row}>
-                                    <td>
-                                      <Checkbox checked={prospect.override} onChange={(event) => {
-                                        setDuplicateProspects(prevState => {
-                                          return prevState!.map(item => {
-                                            if (item.row === prospect.row) {
-                                              return {...item, override: event.currentTarget.checked};
-                                            }
-
-                                            return item;
-                                          })
-                                        })
-                                      }}/>
-                                    </td>
-                                    <td>
-                                      {prospect.full_name}
-                                    </td>
-                                    <td>
-                                      {prospect.company}
-                                    </td>
-                                    <td>
-                                      {prospect.title}
-                                    </td>
-                                    <td>
-                                      {prospect.sdr}
-                                    </td>
-                                    <td>
-                                      {prospect.segment_title ?? "None"}
-                                    </td>
-                                    <td>
-                                      {prospect.archetype}
-                                    </td>
-                                    <td>
-                                      {prospect.status}
-                                    </td>
-                                  </tr>
-                                )
-                              })
-                            }
-                            </tbody>
-                        </Table>
-                    </Accordion.Panel>
-                </Accordion.Item>
-
+            <Accordion
+              variant={"separated"}
+              defaultValue={"duplicate-different-archetypes"}
+            >
+              <Accordion.Item value={"duplicate-different-archetypes"}>
+                <Accordion.Control>
+                  Prospects from different campaigns
+                </Accordion.Control>
+                <Accordion.Panel>
+                  <MantineReactTable table={differentArchetypeTable} />
+                </Accordion.Panel>
+              </Accordion.Item>
+              <Accordion.Item value={"duplicate-same-archetypes"}>
+                <Accordion.Control>
+                  Prospects from the current campaign
+                </Accordion.Control>
+                <Accordion.Panel>
+                  <MantineReactTable table={sameArchetypeTable} />
+                </Accordion.Panel>
+              </Accordion.Item>
             </Accordion>
             {/*<Accordion>*/}
 
             {/*</Accordion>*/}
-
-        </>}
-        {duplicateProspects && duplicateProspects.length === 0 && <>
+          </>
+        )}
+        {duplicateProspects && duplicateProspects.length === 0 && (
+          <>
             <Text>We’re ready to process your file! Here’s the summary:</Text>
             <List withPadding>
               {Array.from(columnMappings.values())
@@ -563,22 +971,28 @@ export default function FileDropLinkedinURLFinderPreview(props: FileDropAndPrevi
                 ))}
             </List>
             <Text pt="xs">
-                <>
-                    You’re about to upload <b>{fileJSON?.length}</b> prospects.
-                </>
+              <>
+                You’re about to upload <b>{fileJSON?.length}</b> prospects.
+              </>
             </Text>
             <Text fs="italic" pt="xs">
-                Looks good?
+              Looks good?
             </Text>
-        </>
-        }
-        <Space h={'96px'} />
-        <Flex justify={'space-between'}>
-          <Button onClick={() => {
-            close();
-            setOverrideAll(false, true);
-            setOverrideAll(false, false);
-          }} variant={'outline'} color={'gray'}>Skip All</Button>
+          </>
+        )}
+        <Space h={"96px"} />
+        <Flex justify={"space-between"}>
+          <Button
+            onClick={() => {
+              close();
+              setOverrideAll(false, true);
+              setOverrideAll(false, false);
+            }}
+            variant={"outline"}
+            color={"gray"}
+          >
+            Skip All
+          </Button>
           <Button onClick={() => startUpload()}>Override Selected 🚀</Button>
         </Flex>
       </Modal>
@@ -588,9 +1002,9 @@ export default function FileDropLinkedinURLFinderPreview(props: FileDropAndPrevi
           multiple={false}
           maxSize={MAX_FILE_SIZE_MB * 1024 ** 2}
           onDrop={async (files: any) => {
-            console.log(files)
+            console.log(files);
             const result = await convertFileToJSON(files[0]);
-            console.log(result)
+            console.log(result);
             if (result instanceof DOMException) {
               showNotification({
                 id: "file-upload-error",
@@ -640,7 +1054,7 @@ export default function FileDropLinkedinURLFinderPreview(props: FileDropAndPrevi
                 color={
                   theme.colors[theme.primaryColor][
                     theme.colorScheme === "dark" ? 4 : 6
-                    ]
+                  ]
                 }
               />
             </Dropzone.Accept>
@@ -654,41 +1068,23 @@ export default function FileDropLinkedinURLFinderPreview(props: FileDropAndPrevi
             <Dropzone.Idle>
               <Table withColumnBorders>
                 <thead>
-                <tr>
-                  <th>
-                    Full Name
-                  </th>
-                  <th>
-                    Company Name
-                  </th>
-                  <th>
-                    Title
-                  </th>
-                </tr>
+                  <tr>
+                    <th>Full Name</th>
+                    <th>Company Name</th>
+                    <th>Title</th>
+                  </tr>
                 </thead>
                 <tbody>
-                <tr key={'example1'}>
-                  <td>
-
-                  </td>
-                  <td>
-
-                  </td>
-                  <td>
-
-                  </td>
-                </tr>
-                <tr key={'example2'}>
-                  <td>
-
-                  </td>
-                  <td>
-
-                  </td>
-                  <td>
-
-                  </td>
-                </tr>
+                  <tr key={"example1"}>
+                    <td></td>
+                    <td></td>
+                    <td></td>
+                  </tr>
+                  <tr key={"example2"}>
+                    <td></td>
+                    <td></td>
+                    <td></td>
+                  </tr>
                 </tbody>
               </Table>
             </Dropzone.Idle>
@@ -707,9 +1103,74 @@ export default function FileDropLinkedinURLFinderPreview(props: FileDropAndPrevi
       {fileJSON && (
         <Stack spacing={0} mah={500}>
           <FlexSeparate>
-            <Text fw={500} size="sm" pl={2}>
-              Please map your file's columns to our system
-            </Text>
+            <Flex align={"center"} gap={"4px"}>
+              <Text fw={500} size="sm" pl={2}>
+                Please map your file's columns to our system
+              </Text>
+              <Popover
+                opened={openCreateColumnPopover}
+                onChange={setOpenCreateColumnPopover}
+              >
+                <Popover.Target>
+                  <Button
+                    size={"xs"}
+                    variant={"outline"}
+                    onClick={() =>
+                      setOpenCreateColumnPopover(!openCreateColumnPopover)
+                    }
+                  >
+                    Add Custom Data Column
+                  </Button>
+                </Popover.Target>
+                <Popover.Dropdown>
+                  <Flex direction={"column"} gap={"4px"}>
+                    <TextInput
+                      value={customDataColumnName}
+                      onChange={(event) =>
+                        setCustomDataColumnName(event.currentTarget.value)
+                      }
+                      label={"Custom Data Name"}
+                      description={
+                        "Enter a name or a short description of what the custom data is about"
+                      }
+                      withAsterisk
+                      placeholder={"custom data name or short description"}
+                    />
+                    <Textarea
+                      value={customDataColumnName}
+                      onChange={(event) =>
+                        setCustomDataColumnName(event.currentTarget.value)
+                      }
+                      label={"Relevancy"}
+                      description={
+                        "Enter a sentence or two about how the data is relevant for generating messages."
+                      }
+                      withAsterisk
+                      placeholder={"Coming soon!"}
+                      disabled
+                    />
+                    <Button
+                      disabled={!customDataColumnName}
+                      onClick={() => {
+                        const column_name =
+                          customDataColumnName?.split(" ").join("_") +
+                          "_customdata_";
+
+                        setProspectDBColumns((prevState) => [
+                          ...prevState,
+                          column_name,
+                        ]);
+                        setCustomDataColumnName(undefined);
+                        setOpenCreateColumnPopover(false);
+                      }}
+                      style={{ maxWidth: "fit-content" }}
+                    >
+                      Add Column
+                    </Button>
+                  </Flex>
+                </Popover.Dropdown>
+              </Popover>
+            </Flex>
             <ActionIcon
               color="red"
               size="sm"
@@ -728,7 +1189,8 @@ export default function FileDropLinkedinURLFinderPreview(props: FileDropAndPrevi
             columns={determineColumns(
               columnMappings,
               setColumnMappings,
-              fileJSON
+              fileJSON,
+              prospectDBColumns
             )}
             records={findBestPreviewRows(fileJSON, PREVIEW_FIRST_N_ROWS)}
           />
@@ -766,6 +1228,7 @@ export default function FileDropLinkedinURLFinderPreview(props: FileDropAndPrevi
           </Center>
         </Stack>
       )}
+      <UploadDetailsDrawer />
     </>
   );
 }

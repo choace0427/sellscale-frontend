@@ -48,6 +48,7 @@ export interface linkedinSequence {
   assets: any[];
   bump_framework_id: number;
   bumped_count: number;
+  overall_status?: string;
   description: string;
   bump_delay_days?: number;
   title?: string;
@@ -55,9 +56,26 @@ export interface linkedinSequence {
 
 export type linkedinSequencesDataType = Array<Array<linkedinSequence>>;
 
+export interface LinkedinInitialMessageDataType {
+  active: boolean;
+  additional_instructions: string;
+  client_archetype_archetype: string;
+  client_archetype_id: number;
+  client_sdr_id: number;
+  id: number;
+  message: string;
+  research_points: any[]; // Replace 'any' with a more specific type if known
+  sellscale_generated: boolean;
+  times_accepted: number;
+  times_used: number;
+  title: string;
+}
+
+
 interface emailSequence {
   active: boolean;
   assets: any[];
+  title?: string;
   id?: number;
   bump_framework_id: number;
   bumped_count: number;

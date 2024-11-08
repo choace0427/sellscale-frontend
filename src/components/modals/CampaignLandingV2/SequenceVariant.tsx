@@ -27,13 +27,21 @@ import { handleAssetCreation } from "@pages/Sequence/InlineTemplateAdder";
 import { useRecoilValue } from "recoil";
 import { userDataState, userTokenState } from "@atoms/userAtoms";
 import { currentProjectState } from "@atoms/personaAtoms";
-import { patchSequenceStep, postSequenceStepDeactivate } from "@utils/requests/emailSequencing";
+import {
+  patchSequenceStep,
+  postSequenceStepActivate,
+  postSequenceStepDeactivate,
+} from "@utils/requests/emailSequencing";
 import { showNotification } from "@mantine/notifications";
-import { postBumpDeactivate } from "@utils/requests/postBumpDeactivate";
+import {
+  postBumpActivate,
+  postBumpDeactivate,
+} from "@utils/requests/postBumpDeactivate";
 import RichTextArea from "@common/library/RichTextArea";
 import { JSONContent } from "@tiptap/react";
 import { patchBumpFramework } from "@utils/requests/patchBumpFramework";
 import { API_URL } from "@constants/data";
+import { updateLiTemplate } from "@utils/requests/linkedinTemplates";
 
 interface SequenceVariantProps {
   asset: any;
@@ -67,6 +75,7 @@ interface SequenceVariantProps {
   setSuggestionData?: (data: any) => void;
   setAddingLinkedinAsset?: (value: boolean) => void;
   setManuallyAddedTemplate?: (value: string) => void;
+  sequenceStep?: number;
 }
 
 const SequenceVariant: React.FC<SequenceVariantProps> = (props) => {
@@ -90,12 +99,13 @@ const SequenceVariant: React.FC<SequenceVariantProps> = (props) => {
     showAll,
     sequenceType,
     currentStepNum,
+    sequenceStep,
     setSuggestionData,
     setAddingLinkedinAsset,
     setManuallyAddedTemplate,
   } = props;
 
-  console.log("----------", text)
+  console.log("----------", text);
 
   const userData = useRecoilValue(userDataState);
   const userToken = useRecoilValue(userTokenState);
@@ -103,7 +113,7 @@ const SequenceVariant: React.FC<SequenceVariantProps> = (props) => {
   const currentProject = useRecoilValue(currentProjectState);
 
   const [showEditor, setShowEditor] = useState(false);
-  const bodyRich = useRef<JSONContent | null>(null);
+  const bodyRich = useRef<JSONContent | null | string>(null);
   const bodyRef = useRef<string | null>(null);
   const [textState, setTextState] = useState<string>(text);
 
@@ -118,12 +128,12 @@ const SequenceVariant: React.FC<SequenceVariantProps> = (props) => {
   // );
 
   useEffect(() => {
-    if (typeof text === 'string') {
+    if (typeof text === "string") {
       try {
         bodyRich.current = JSON.parse(text);
         bodyRef.current = text;
       } catch (e) {
-        console.error('Failed to parse text as JSON', e);
+        console.error("Failed to parse text as JSON", e);
         bodyRich.current = null;
         bodyRef.current = null;
       }
@@ -152,7 +162,7 @@ const SequenceVariant: React.FC<SequenceVariantProps> = (props) => {
             Variant #{index + 1}:
           </Text>
           <Text fw={600} size={"xs"} ml={"-5px"}>
-            {textState}
+            {angle}
           </Text>
         </Flex>
         <Flex gap={1} align={"center"}>
@@ -162,14 +172,18 @@ const SequenceVariant: React.FC<SequenceVariantProps> = (props) => {
             </Badge>
           )}
           <Tooltip label="Edit template" position="top">
-            <ActionIcon disabled={isSaved === undefined && assetType !== 'staging'} onClick={()=>{
-              if (opened){
-                setShowEditor(!showEditor);
-              } else {
-                handleToggle(index);
-                setShowEditor(true);
-              }
-            }} mr="xs">
+            <ActionIcon
+              disabled={isSaved === undefined && assetType !== "staging"}
+              onClick={() => {
+                if (opened) {
+                  setShowEditor(!showEditor);
+                } else {
+                  handleToggle(index);
+                  setShowEditor(true);
+                }
+              }}
+              mr="xs"
+            >
               <IconEdit size={"0.9rem"} />
             </ActionIcon>
           </Tooltip>
@@ -182,28 +196,60 @@ const SequenceVariant: React.FC<SequenceVariantProps> = (props) => {
                   onClick={async () => {
                     let result;
                     if (assetType === "email") {
-                      result = await postSequenceStepDeactivate(
-                        userToken,
-                        assetId
-                      );
+                      if (asset.active) {
+                        result = await postSequenceStepDeactivate(
+                          userToken,
+                          assetId
+                        );
+                      } else {
+                        result = await postSequenceStepActivate(
+                          userToken,
+                          assetId
+                        );
+                      }
                     } else if (assetType === "linkedin") {
-                      result = await postBumpDeactivate(
-                        userToken,
-                        asset.bump_framework_id
-                      );
+                      if (asset.id && !asset.bump_framework_id) {
+                        //this is the case for linkedin templates
+                        updateLiTemplate(
+                          userToken,
+                          currentProject?.id || -1,
+                          asset.id,
+                          asset.title,
+                          bodyRef.current || "",
+                          !asset.active,
+                          asset.times_used,
+                          asset.times_accepted,
+                          asset.research_points,
+                          asset.additional_instructions
+                        );
+                        refetch();
+                        return;
+                      }
+
+                      if (asset.active) {
+                        result = await postBumpDeactivate(
+                          userToken,
+                          asset.bump_framework_id
+                        );
+                      } else {
+                        result = await postBumpActivate(
+                          userToken,
+                          asset.bump_framework_id
+                        );
+                      }
                     }
 
                     if (result && result.status === "success") {
                       showNotification({
                         title: "Success",
-                        message: "Sequence Step deactivated successfully",
+                        message: "Sequence Step modified successfully",
                         color: theme.colors.green[7],
                       });
                       refetch();
                     } else {
                       showNotification({
                         title: "Error",
-                        message: "Failed to deactivate sequence step",
+                        message: "Failed to modify sequence step",
                         color: theme.colors.red[7],
                       });
                     }
@@ -303,12 +349,12 @@ const SequenceVariant: React.FC<SequenceVariantProps> = (props) => {
                         assetId,
                         "active",
                         angle,
-                        bodyRef.current || '',
+                        bodyRef.current || "",
                         null,
                         false
                       );
                       setShowEditor(false);
-                      setTextState(bodyRef.current || '');
+                      setTextState(bodyRef.current || "");
                       console.log("Save button clicked");
                     }}
                   >
@@ -321,7 +367,7 @@ const SequenceVariant: React.FC<SequenceVariantProps> = (props) => {
                 <Textarea
                   onChange={(event) => {
                     bodyRef.current = event.currentTarget.value;
-                    setTextState(event.currentTarget.value)
+                    setTextState(event.currentTarget.value);
                   }}
                   value={textState}
                   minRows={10}
@@ -347,10 +393,12 @@ const SequenceVariant: React.FC<SequenceVariantProps> = (props) => {
                         null, // Bump framework template name (optional)
                         null, // Bump framework human readable prompt (optional)
                         null,
-                        (currentStepNum || currentStepNum === 0) ? currentStepNum : undefined,
+                        currentStepNum || currentStepNum === 0
+                          ? currentStepNum
+                          : undefined
                       );
                       setShowEditor(false);
-                      setTextState(bodyRef.current || '');
+                      setTextState(bodyRef.current || "");
                       refetch();
                     }}
                   >
@@ -358,12 +406,12 @@ const SequenceVariant: React.FC<SequenceVariantProps> = (props) => {
                   </Button>
                 </Flex>
               </Flex>
-            ) : assetType === 'staging' ? (
+            ) : assetType === "staging" ? (
               <Flex direction="column" style={{ width: "100%" }}>
                 <Textarea
                   onChange={(event) => {
                     bodyRef.current = event.currentTarget.value;
-                    setTextState(event.currentTarget.value)
+                    setTextState(event.currentTarget.value);
                   }}
                   value={textState}
                   minRows={10}
@@ -373,47 +421,59 @@ const SequenceVariant: React.FC<SequenceVariantProps> = (props) => {
                     size="xs"
                     color="teal"
                     onClick={async () => {
-                      console.log('asset is', asset);
+                      console.log("asset is", asset);
                       // console.log('item in staging data is: ', stagingData[assetType].find((item: any) => item.id === assetId));
                       setShowEditor(false);
-                      setTextState(bodyRef.current || '');
+                      setTextState(bodyRef.current || "");
 
                       // Update the staging data with the new text
-                      console.log('staging data is', stagingData)
+                      console.log("staging data is", stagingData);
                       const updatedStagingData = {
                         ...stagingData,
-                        [sequenceType]: stagingData[sequenceType]?.map((item: any) =>
-                          item.id === assetId ? { ...item, text: textState || '', angle: asset.angle, assets: asset.assets, step_num: asset.step_num } : item
-                        ) || [],
+                        [sequenceType]:
+                          stagingData[sequenceType]?.map((item: any) =>
+                            item.id === assetId
+                              ? {
+                                  ...item,
+                                  text: textState || "",
+                                  angle: asset.angle,
+                                  assets: asset.assets,
+                                  step_num: asset.step_num,
+                                }
+                              : item
+                          ) || [],
                       };
                       setStagingData(updatedStagingData);
 
                       // Call the fetch to update the asset on the server
-                      if (sequenceType === 'linkedin'){
+                      if (sequenceType === "linkedin") {
                         try {
-                          const response = await fetch(`${API_URL}/client/update_asset`, {
-                            method: 'POST',
-                            headers: {
-                              'Content-Type': 'application/json',
-                              Authorization: `Bearer ${userToken}`,
-                            },
-                            body: JSON.stringify({
-                              asset_id: asset.assets[0],
-                              asset_key: asset.angle,
-                              asset_value:  bodyRef.current || '',
-                              asset_raw_value: bodyRef.current || '',
-                              asset_type: 'TEXT',
-                              asset_tags: asset.asset_tags,
-                            }),
-                          });
+                          const response = await fetch(
+                            `${API_URL}/client/update_asset`,
+                            {
+                              method: "POST",
+                              headers: {
+                                "Content-Type": "application/json",
+                                Authorization: `Bearer ${userToken}`,
+                              },
+                              body: JSON.stringify({
+                                asset_id: asset.assets[0],
+                                asset_key: asset.angle,
+                                asset_value: bodyRef.current || "",
+                                asset_raw_value: bodyRef.current || "",
+                                asset_type: "TEXT",
+                                asset_tags: asset.asset_tags,
+                              }),
+                            }
+                          );
 
                           if (!response.ok) {
-                            throw new Error('Failed to update asset');
+                            throw new Error("Failed to update asset");
                           }
 
-                          console.log('Asset updated successfully');
+                          console.log("Asset updated successfully");
                         } catch (error) {
-                          console.error('Error updating asset:', error);
+                          console.error("Error updating asset:", error);
                         }
                       }
                       console.log("Save button clicked");
@@ -423,11 +483,7 @@ const SequenceVariant: React.FC<SequenceVariantProps> = (props) => {
                   </Button>
                 </Flex>
               </Flex>
-
-            ) : (
-              null
-            ) 
-
+            ) : null
           ) : (
             <Box>
               <div style={{ fontSize: "11px" }}>

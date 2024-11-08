@@ -47,6 +47,7 @@ import { userTokenState } from "@atoms/userAtoms";
 import moment from "moment";
 import { deterministicMantineColor } from "@utils/requests/utils";
 import { showNotification } from "@mantine/notifications";
+import { API_URL } from "@constants/data";
 
 type DeanonymizationType = {
   avatar: string;
@@ -335,17 +336,18 @@ export default function WebsiteOverview(props: any) {
       </Paper>
       <Paper mt={"md"} p={"lg"} withBorder>
       <Flex justify={"space-between"} align={"center"}>
-        <Text size={"md"} fw={600}>
-          Bucketed Contacts
-        </Text>
-        <Select
-          w={200}
-          label="Filter by bucket"
-          defaultValue={"all"}
-          onChange={(v: any) => setFilteredWebVisits(v === "all" ? webVisits : webVisits.filter((contact) => contact.icp_routing_id === v))}
-          data={[{ label: "All Buckets", value: "all" }, ...buckets.map((bucket) => ({ label: bucket.title, value: bucket.id }))]}
-        />
-      
+        <Flex align={"center"} gap={"md"}>
+          <Text size={"md"} fw={600}>
+            Bucketed Contacts
+          </Text>
+          <Select
+            w={200}
+            label="Filter by bucket"
+            defaultValue={"all"}
+            onChange={(v: any) => setFilteredWebVisits(v === "all" ? webVisits : webVisits.filter((contact) => contact.icp_routing_id === v))}
+            data={[{ label: "All Buckets", value: "all" }, ...buckets.map((bucket) => ({ label: bucket.title, value: bucket.id }))]}
+          />
+        </Flex>
       </Flex>
     <ScrollArea style={{ height: "40vh" }}>
       <Table mt={"md"} withBorder withColumnBorders style={{ height: "400px", overflowY: "auto" }}>
@@ -384,6 +386,11 @@ export default function WebsiteOverview(props: any) {
             <th>
               <Flex align={"center"} gap={"3px"}>
                 <Text color="gray">Bucket</Text>
+              </Flex>
+            </th>
+            <th>
+              <Flex align={"center"} gap={"3px"}>
+                <Text color="gray">Actions</Text>
               </Flex>
             </th>
            
@@ -482,6 +489,40 @@ export default function WebsiteOverview(props: any) {
                     </Badge>
                   </Box>
                 </Flex>
+              </td>
+              <td>
+                {prospect.icp_routing_id && <Button color="green"
+                  onClick={async () => {
+                    try {
+                      const response = await fetch(`${API_URL}/track/send_bucket_notification`, {
+                        method: 'POST',
+                        headers: {
+                          'Content-Type': 'application/json',
+                          Authorization: `Bearer ${userToken}`,
+                        },
+                        body: JSON.stringify({ prospect: prospect }),
+                      });
+
+                      if (response.ok) {
+                        showNotification({
+                          title: 'Notification Sent',
+                          message: 'Bucket notification has been sent successfully.',
+                          color: 'teal',
+                        });
+                      } else {
+                        throw new Error('Failed to send notification');
+                      }
+                    } catch (error) {
+                      showNotification({
+                        title: 'Error',
+                        message: 'An error occurred while sending the notification.',
+                        color: 'red',
+                      });
+                    }
+                  }}
+                >
+                  Send Notification
+                </Button>}
               </td>
             </tr>
           ))}

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Button, Flex, Text, Textarea, Loader, Paper, Stack, Center, Badge, Avatar, TextInput, SegmentedControl, Checkbox, ScrollArea, Modal, Box, SimpleGrid, Select, Table } from '@mantine/core';
+import { Button, Flex, Text, Textarea, Loader, Paper, Stack, Center, Badge, Avatar, TextInput, SegmentedControl, Checkbox, ScrollArea, Modal, Box, SimpleGrid, Select, Table, Title } from '@mantine/core';
 import { showNotification } from '@mantine/notifications';
 import { API_URL } from '@constants/data';
 import { useRecoilState, useRecoilValue } from 'recoil';
@@ -9,6 +9,7 @@ import { currentProjectState } from '@atoms/personaAtoms';
 import { IconArrowLeft, IconBrandLinkedin, IconCalendar, IconMail, IconMailOpened, IconSend } from '@tabler/icons';
 import { Calendar } from '@fullcalendar/core';
 import GenerateAndSend from '@pages/GenerateAndSend';
+import { set } from 'lodash';
 
 export const GenerationCenter: React.FC = () => {
 
@@ -220,7 +221,7 @@ export const GenerationCenter: React.FC = () => {
         );
     };
 
-    const filteredContacts = campaignContacts?.filter(contact => {
+    const filteredContacts = Array.isArray(campaignContacts) ? campaignContacts.filter(contact => {
         const isInSearchTerm = `${contact.first_name} ${contact.last_name}`.toLowerCase().includes(searchTerm.toLowerCase()) ||
             contact.title.toLowerCase().includes(searchTerm.toLowerCase());
 
@@ -238,7 +239,7 @@ export const GenerationCenter: React.FC = () => {
         }
 
         return isInSearchTerm;
-    });
+    }) : [];
 
     //uncomment when done
 
@@ -249,7 +250,10 @@ export const GenerationCenter: React.FC = () => {
         if (currentPage === 0){
             fetchCampaignsByArchetype(currentProject?.id || -1);
         }
-    }, [currentPage, campaignUUID]);
+        if (campaignUUID && generatedMessageStatus?.jobs_list && generatedMessageStatus?.jobs_list?.length > 0 && generatedMessageStatus?.jobs_list.every(job => job.status === 'COMPLETED' || job.status === 'FAILED')) {
+            setIframeOpen(true);
+        }
+    }, [currentPage, campaignUUID, generatedMessageStatus]);
         
 
     return (
@@ -258,7 +262,7 @@ export const GenerationCenter: React.FC = () => {
                 <Modal
                     size="100%"
                     opened={iframeOpen}
-                    onClose={() => setIframeOpen(false)}
+                    onClose={() => {setIframeOpen(false); setCurrentPage(0); setCampaignUUID(null); setOutboundCampaignID(null); fetchCampaignsByArchetype(currentProject?.id || -1);}}
                     styles={{
                         body: {
                             flex: 1,
@@ -345,6 +349,11 @@ export const GenerationCenter: React.FC = () => {
                             </Paper>
                         </Flex>
                     </Paper>
+                )}
+                                {outboundCampaignID && (
+                    <Title order={2} align="center" mt="xl">
+                        {outboundCampaigns.find(campaign => campaign.id === outboundCampaignID)?.name}
+                    </Title>
                 )}
                 {!outboundCampaignID && <Flex gap="sm" mt="md" justify="center">
                     {generationType === 'linkedin' ? (
@@ -548,7 +557,7 @@ export const GenerationCenter: React.FC = () => {
             </>
             ) : (<>
 
-                <Paper shadow="sm" p="md" withBorder style={{ borderRadius: '8px', backgroundColor: '#f9f9f9', width: '100%', maxWidth: '400px', margin: '0 auto' }}>
+                <Paper shadow="sm" p="md" withBorder style={{ borderRadius: '8px', backgroundColor: '#f9f9f9', width: '100%', maxWidth: '100%', margin: '0 auto' }}>
                     <Flex justify="center" align="center" gap="md" direction="column">
                         <Button color="blue" rightIcon={<IconSend size={16} />} onClick={() => { 
                             setOutboundCampaignID(null); 
@@ -556,25 +565,61 @@ export const GenerationCenter: React.FC = () => {
                             setCurrentPage(1);
                         }}>
                             Create New Outbound Campaign
-                        </Button>
-                        <Select
-                            label={<Text>Existing Outbound Campaigns</Text>}
-                            placeholder="Choose existing"
-                            data={outboundCampaigns.length > 0 ? outboundCampaigns.map((campaign: OutboundCampaign) => ({
-                                value: campaign.id.toString(),
-                                label: campaign.campaign_type === 'LINKEDIN' ? `LinkedIn - ${campaign.name}` :
-                                       campaign.campaign_type === 'EMAIL' ? `Email - ${campaign.name}` :
-                                       `${campaign.name} - ${campaign.campaign_type}`
-                            })) : [{ value: '', label: 'No campaigns available' }]}
-                            style={{ width: '100%' }}
-                            onChange={(value: any) => {
-                                setOutboundCampaignID(parseInt(value));
-                                setGenerationType(outboundCampaigns.find(campaign => campaign.id === parseInt(value))?.campaign_type === 'LINKEDIN' ? 'linkedin' : 'email');
-                                setCampaignUUID(outboundCampaigns.find(campaign => campaign.id === parseInt(value))?.uuid || null);
-                                setCurrentPage(1);
-                                getGeneratedMessageStatus(parseInt(value));
-                            }}
-                        />
+                        </Button>         
+
+                        <Title order={3} align="center" mb="md">
+                            Existing Outbound Campaigns
+                        </Title>
+                        <Table>
+                            <thead>
+                                <tr>
+                                    <th>Campaign Name</th>
+                                    <th>Campaign Type</th>
+                                    <th>Start Date</th>
+                                    <th>End Date</th>
+                                    <th>Priority</th>
+                                    <th>Status</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {outboundCampaigns.map((campaign: OutboundCampaign) => (
+                                    <tr 
+                                        key={campaign.id} 
+                                        onClick={() => {
+                                            setOutboundCampaignID(campaign.id);
+                                            setGenerationType(campaign.campaign_type === 'LINKEDIN' ? 'linkedin' : 'email');
+                                            setCampaignUUID(campaign.uuid || null);
+                                            setCurrentPage(1);
+                                            getGeneratedMessageStatus(campaign.id);
+                                        }}
+                                        style={{ cursor: 'pointer' }}
+                                        onMouseEnter={(e) => {
+                                            e.currentTarget.style.backgroundColor = '#f0f0f0';
+                                        }}
+                                        onMouseLeave={(e) => {
+                                            e.currentTarget.style.backgroundColor = 'transparent';
+                                        }}
+                                    >
+                                        <td>{campaign.name}</td>
+                                        <td>{campaign.campaign_type}</td>
+                                        <td>{new Date(campaign.campaign_start_date).toLocaleString('en-US', { month: 'long', day: 'numeric', year: 'numeric', hour: 'numeric', minute: 'numeric', hour12: true })}</td>
+                                        <td>{new Date(campaign.campaign_end_date).toLocaleString('en-US', { month: 'long', day: 'numeric', year: 'numeric', hour: 'numeric', minute: 'numeric', hour12: true })}</td>
+                                        <td>{campaign.priority_rating}</td>
+                                        <td>
+                                            {campaign.status === 'CANCELLED' && <Badge color="red">{campaign.status}</Badge>}
+                                            {campaign.status === 'COMPLETE' && <Badge color="green">{campaign.status}</Badge>}
+                                            {campaign.status === 'INITIAL_EDIT_COMPLETE' && <Badge color="blue">{campaign.status}</Badge>}
+                                            {campaign.status === 'NEEDS_REVIEW' && <Badge color="orange">{campaign.status}</Badge>}
+                                            {campaign.status !== 'CANCELLED' && campaign.status !== 'COMPLETE' && campaign.status !== 'INITIAL_EDIT_COMPLETE' && campaign.status !== 'NEEDS_REVIEW' && <Badge>{campaign.status}</Badge>}
+                                        </td>
+
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </Table>
+                        {outboundCampaigns.length === 0 && (
+                            <Text>No campaigns available</Text>
+                        )}
                     </Flex>
                 </Paper>
 

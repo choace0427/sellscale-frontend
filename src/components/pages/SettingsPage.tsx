@@ -40,8 +40,10 @@ import CalendarAndScheduling from "@common/settings/CalendarAndScheduling";
 import {
   IconAdjustmentsFilled,
   IconBrain,
+  IconBrandTeams,
   IconHexagonalPrism,
   IconMessage2Bolt,
+  IconSparkles,
   IconTrashFilled,
 } from "@tabler/icons-react";
 import DoNotContactList from "@common/settings/DoNotContactList";
@@ -63,6 +65,9 @@ import { InboxesManagementPage } from "@common/settings/InboxesManagementPage";
 import WebTrafficRouting from "@common/settings/Traffic/WebTrafficRouting";
 import posthog from "posthog-js";
 import PreFilterV2 from "@common/settings/PreFiltersV2/PrefiltersV2";
+import Advanced from "./Advanced";
+import SelixIntelligence from "./SelixIntelligence/SelixIntelligence";
+import MicrosoftTeamsSettings from "@common/microsoft_teams/MicrosoftTeamsSettings";
 
 export default function SettingsPage() {
   setPageTitle("Settings");
@@ -257,6 +262,9 @@ export default function SettingsPage() {
           >
             INTEGRATIONS
           </Title>
+          <Tabs.Tab value="selix" icon={<IconSparkles size="0.8rem" />}>
+            Selix Intelligence
+          </Tabs.Tab>
           <Tabs.Tab value="linkedin" icon={<IconBrandLinkedin size="0.8rem" />}>
             LinkedIn Connection
           </Tabs.Tab>
@@ -270,6 +278,12 @@ export default function SettingsPage() {
           </Tabs.Tab>
           <Tabs.Tab value="slack" icon={<IconBrandSlack size="0.8rem" />}>
             Slack Connection
+          </Tabs.Tab>
+          <Tabs.Tab
+            value="microsoft-teams"
+            icon={<IconBrandTeams size="0.8rem" />}
+          >
+            Microsoft Teams Connection
           </Tabs.Tab>
           <Tabs.Tab value="scheduling" icon={<IconCalendar size="0.8rem" />}>
             Calendar Connection
@@ -298,6 +312,12 @@ export default function SettingsPage() {
           <Tabs.Tab value="account" icon={<IconHexagonalPrism size="0.8rem" />}>
             Account Settings
           </Tabs.Tab>
+          <Tabs.Tab
+            value="advanced"
+            icon={<IconHexagonalPrism size="0.8rem" />}
+          >
+            Advanced
+          </Tabs.Tab>
           {userData.role === "ADMIN" && (
             <Tabs.Tab
               value="organization"
@@ -308,8 +328,16 @@ export default function SettingsPage() {
           )}
         </Tabs.List>
 
+        <Tabs.Panel value="selix" pl="xs">
+          <SelixIntelligence />
+        </Tabs.Panel>
+
         <Tabs.Panel value="account" pl="xs">
           <AccountSettings />
+        </Tabs.Panel>
+
+        <Tabs.Panel value="advanced" pl="xs">
+          <Advanced />
         </Tabs.Panel>
 
         <Tabs.Panel value="organization" pl="xs">
@@ -397,6 +425,10 @@ export default function SettingsPage() {
 
         <Tabs.Panel value="slack" pl="xs">
           <SlackSettings />
+        </Tabs.Panel>
+
+        <Tabs.Panel value="microsoft-teams" pl="xs">
+          <MicrosoftTeamsSettings />
         </Tabs.Panel>
 
         <Tabs.Panel value="messages" pl="xs">

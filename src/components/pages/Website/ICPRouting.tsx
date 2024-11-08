@@ -24,9 +24,12 @@ import {
   Popover,
   Modal,
   TextInput,
+  Loader,
 } from "@mantine/core";
 import { openContextModal } from "@mantine/modals";
 import { showNotification } from "@mantine/notifications";
+import ContactAccountFilterModal from "@modals/ContactAccountFilterModal";
+import { TransformedSegment } from "@pages/SegmentV3/SegmentV3";
 import {
   IconBell,
   IconBrandLinkedin,
@@ -35,28 +38,184 @@ import {
   IconChevronRight,
   IconCircleCheck,
   IconCircleX,
+  IconEye,
   IconFilter,
   IconLetterT,
   IconPencil,
   IconPlus,
   IconRefresh,
+  IconSettings,
   IconToggleRight,
   IconTrash,
 } from "@tabler/icons";
 import { IconSparkles } from "@tabler/icons-react";
 import { on } from "events";
+import { create, min, set } from "lodash";
 import { DataGrid } from "mantine-data-grid";
 import { JSXElementConstructor, Key, ReactElement, ReactNode, ReactPortal, useEffect, useState } from "react";
 import { useRecoilValue } from "recoil";
 
 export default function ICPRouting() {
   const userToken = useRecoilValue(userTokenState);
+  const [openWebhookModal, setOpenWebhookModal] = useState(false);
+  const [slackWebhookUrl, setSlackWebhookUrl] = useState("");
+  const [loadingSetWebhook, setLoadingSetWebhook] = useState(false);
   const theme = useMantineTheme();
   const [loading, setLoading] = useState(false);
+  const [showViewProspectsModal, setShowViewProspectsModal] = useState(false);
+  const [segmentData, setSegmentData] = useState<TransformedSegment[]>([]);
+  const [selectedSegmentId, setSelectedSegmentId] = useState(-1);
   const [acPageSize, setAcPageSize] = useState("25");
   const [showTextBucketModal, setShowTextBucketModal] = useState(false);
+  const [segmentOptions, setSegmentOptions] = useState<Segment[]>([]);
   const [linkedInUrl, setLinkedInUrl] = useState("");
+  const [fetchingSegments, setFetchingSegments] = useState(false);
   const [visitedPage, setVisitedPage] = useState("");
+
+  type Segment = {
+    num_results: number;
+    attached_segments: any[];
+    client_archetype: {
+      archetype: string;
+      emoji: string;
+    };
+    client_sdr: {
+      client_id: number;
+      id: number;
+    };
+    filters: {
+      excluded_bio_keywords: string[];
+      excluded_company_keywords: string[];
+      excluded_education_keywords: string[];
+      // Add other filter fields as necessary
+    };
+    id: number;
+    num_contacted: number;
+    num_prospected: number;
+    parent_segment_id: number | null;
+    saved_apollo_query_id: number;
+    segment_title: string;
+    unique_companies: number;
+  };
+
+  const getAllSegments = async (showLoader: boolean, tagFilter?: Number) => {
+    function transformData(segments: any[]) {
+      return segments.map((segment, index) => {
+        // Assume progress, campaign, contacts, filters, assets are derived somehow
+        return {
+          id: segment.id,
+          person_name: segment.segment_title,
+          segment_title: segment.segment_title,
+          progress: Math.floor(Math.random() * 100), // Fake random progress
+          campaign: Math.floor(Math.random() * 100), // Fake random campaign ID or null
+          contacts: Math.floor(Math.random() * 2000000), // Fake random contacts number
+          filters: Object.keys(segment.filters).length, // Count of filter types
+          assets: Math.floor(Math.random() * 100), // Fake random asset count or null
+          sub_segments: [], // This needs to be populated based on more complex logic or additional data
+          client_archetype: segment.client_archetype,
+          client_sdr: segment.client_sdr,
+          num_prospected: segment.num_prospected,
+          num_contacted: segment.num_contacted,
+          apollo_query: segment.apollo_query,
+          segment_tags: segment.attached_segments,
+          autoscrape_enabled: segment.autoscrape_enabled,
+          current_scrape_page: segment.current_scrape_page,
+        };
+      });
+    }
+    if (showLoader) {
+      setLoading(true);
+    }
+    fetch(
+      `${API_URL}/segment/all?include_all_in_client=true` +
+        (tagFilter !== -1
+          ? `&tag_filter=${tagFilter}`
+          : ""),
+      {
+        method: "GET",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${userToken}`,
+        },
+      }
+    )
+      .then((response) => response.json())
+      .then((data) => {
+        const segments = data.segments;
+        const totalProspected = segments.reduce(
+          (acc: number, segment: any) => acc + (segment.num_prospected || 0),
+          0
+        );
+        const totalUniqueCompanies = segments.reduce(
+          (acc: number, segment: any) => acc + (segment.unique_companies || 0),
+          0
+        );
+        const totalContacted = segments.reduce(
+          (acc: number, segment: any) => acc + (segment.num_contacted || 0),
+          0
+        );
+        const totalProspectsInPreFilters = segments.reduce(
+          (acc: number, segment: any) =>
+            acc + (segment.apollo_query?.num_results || 0),
+          0
+        );
+        const parentSegments = segments.filter(
+          (segment: any) => !segment.parent_segment_id
+        );
+        let parentSegmentsTransformed = transformData(parentSegments);
+
+        const parentSegmentsTransformedWithSubSegments: any = parentSegmentsTransformed?.map(
+          (segment) => {
+            const subSegments = segments.filter(
+              (subSegment: any) => subSegment.parent_segment_id === segment.id
+            );
+            return {
+              ...segment,
+              sub_segments: transformData(subSegments),
+            };
+          }
+        );
+
+        setSegmentData(parentSegmentsTransformedWithSubSegments);
+      })
+      .finally(() => {
+        console.log("Stopping");
+        setLoading(false);
+      });
+  };
+
+  const doStuff = async (query: string, row: any) => {
+    setFetchingSegments(true);
+        const newSegment = await createSegment(query);
+        updateIcpRoute(row.icpRouteId || -1, {
+          segment_id: newSegment.id,
+        });
+        await fetchSegments();
+        await fetchData();
+        setFetchingSegments(false);
+        return { value: newSegment.id.toString(), label: newSegment.segment_title };
+
+      }
+
+  const createSegment = async (segmentName?: string) => {
+    return fetch(`${API_URL}/segment/create`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${userToken}`,
+      },
+      body: JSON.stringify({
+        segment_title: segmentName,
+        // is_market_map: isMarketMapSegment,
+        filters: {},
+      }),
+    })
+      .then((response) => response.json())
+      .then((data) => {
+        return data;
+      });
+  };
+
   type IcpRoute = {
     active: boolean;
     ai_mode: boolean;
@@ -109,6 +268,7 @@ export default function ICPRouting() {
     updateIcpRoute,
     getAllIcpRoutes,
     getWebVisits,
+    getSegments
   } = useTrackApi(userToken);
 
   const fetchData = async () => {
@@ -121,6 +281,7 @@ export default function ICPRouting() {
         id: route.id,
         count: route.count,
         ai_mode: route.ai_mode,
+        segment_id: route.segment_id,
         rules: route.rules,
         routeTo: route.segment_id ? `${route.segment_title} ✅` : "no segment connected",
         send_slack: route.send_slack,
@@ -162,7 +323,7 @@ export default function ICPRouting() {
       });
       const data = await response.json();
       console.log('data', data);
-      if (data.met_conditions.length === 0) {
+      if (data?.met_conditions?.length === 0 && !data.icp_route) {
         showNotification({
           title: "No Rules Met",
           message: "Could not find a bucket for this visitor",
@@ -187,11 +348,23 @@ export default function ICPRouting() {
     setLoading(false);
   }
 
+  const fetchSegments = async () => {
+    setFetchingSegments(true);
+    const segments = await getSegments();
+    setSegmentOptions(segments);
+    setFetchingSegments(false);
+  };
+
 
   useEffect(() => {
     fetchData();
     fetchWebVisits();
+    fetchSegments();
+    getAllSegments(false);
+
+    // fetchIcpQueries();
   }, [userToken]);
+
 
   const [data, setData]: [IcpRouteData[], any] = useState([]);
   type WebVisit = {
@@ -212,6 +385,79 @@ export default function ICPRouting() {
 
   return (
     <div style={{ overflowY: "hidden" }}>
+      <Modal opened={openWebhookModal} onClose={() => setOpenWebhookModal(false)} size="lg">
+
+        <Paper style={{ padding: "md" }}>
+          <Box mb="md">
+            <Title order={4}>Webhook Settings</Title>
+            <Text size="sm" color="gray">
+              Configure your Slack webhook to receive alerts when a visitor is bucketed.
+            </Text>
+          </Box>
+          <TextInput
+            label="Slack Webhook URL"
+            placeholder="https://hooks.slack.com/services/..."
+            autoComplete="off"
+            value={slackWebhookUrl}
+            onChange={(event) => setSlackWebhookUrl(event.currentTarget.value)}
+          />
+          <Button
+            disabled={!slackWebhookUrl || !slackWebhookUrl.startsWith("https://hooks.slack.com/services/")}
+            color="grape"
+            loading={loadingSetWebhook}
+            fullWidth
+            mt="md"
+            onClick={async () => {
+              try {
+                setLoadingSetWebhook(true);
+                const response = await fetch(`${API_URL}/track/set_icp_webook_url`, {
+                  method: "POST",
+                  headers: {
+                    "Content-Type": "application/json",
+                    Authorization: `Bearer ${userToken}`,
+                  },
+                  body: JSON.stringify({ webhook_url: slackWebhookUrl }),
+                });
+
+                if (!response.ok) {
+                  throw new Error("Failed to set webhook URL");
+                }
+
+                const data = await response.json();
+                setSlackWebhookUrl(data.webhook_url);
+                showNotification({
+                  title: "Success",
+                  message: "Webhook URL saved successfully",
+                  color: "green",
+                  icon: <IconCheck />,
+                });
+              } catch (error) {
+                console.error("Error setting webhook URL:", error);
+                showNotification({
+                  title: "Error",
+                  message: "Failed to save webhook URL",
+                  color: "red",
+                  icon: <IconCircleX />,
+                });
+              } finally {
+                setLoadingSetWebhook(false);
+                setOpenWebhookModal(false);
+              }
+            }}
+          >
+            Save
+          </Button>
+
+          </Paper>
+
+        </Modal>
+
+        <ContactAccountFilterModal
+        showContactAccountFilterModal={showViewProspectsModal}
+        setShowContactAccountFilterModal={setShowViewProspectsModal}
+        segment={segmentData.find((item) => item.id === selectedSegmentId)}
+        isModal={true}
+      />
       {showTextBucketModal && (
         <Modal opened={showTextBucketModal} onClose={() => {setShowTextBucketModal(false); setSimulationData(null); setShowResults(false)}} size="lg">
           <Paper style={{ padding: "md" }}>
@@ -355,7 +601,7 @@ export default function ICPRouting() {
           </Button>
         </Flex>
       </Flex>
-    <ScrollArea style={{ height: "40vh" }}>
+    <ScrollArea style={{ height: "100vh" }}>
     <Paper withBorder radius={"sm"} p={"md"} mt={"md"} style={{ height: "50%", overflowY: "auto" }}>
       <Table mt={"md"} withBorder withColumnBorders>
         <thead>
@@ -383,9 +629,27 @@ export default function ICPRouting() {
             <th>
               <Flex align={"center"} gap={"3px"}>
                 <Text color="gray">Slack Alerts</Text>
+                <ActionIcon
+                  size={16}
+                  color="gray"
+                  onClick={async () => {
+                    const response = await fetch(`${API_URL}/track/get_icp_webhook_url`, {
+                      method: "POST",
+                      headers: {
+                        "Content-Type": "application/json",
+                        Authorization: `Bearer ${userToken}`,
+                      },
+                    });
+                    const data = await response.json();
+                    setSlackWebhookUrl(data.webhook_url);
+                    setOpenWebhookModal(true);
+                  }}
+                >
+                  <IconSettings size={16} />
+                </ActionIcon>
               </Flex>
             </th>
-            <th>
+            <th style={{ minWidth: "300px" }}>
               <Flex align={"center"} gap={"3px"}>
                 <Text color="gray">Target Segment</Text>
               </Flex>
@@ -498,22 +762,118 @@ export default function ICPRouting() {
               </td>
               <td>
                 <Flex align={"center"} justify={"center"} gap={"xs"} py={"lg"} w={"100%"} h={"100%"}>
-                  <Flex justify={"center"} w={"100%"} align={"center"} gap={"md"}>
-                    <Badge
-                      mr="md"
-                      ml="md"
-                      sx={{
-                        backgroundColor: row.routeTo?.includes("no segment") ? "#d3d3d3" : "#90ee90",
-                        color: row.routeTo?.includes("no segment") ? "#ffffff" : "#006400",
-                        padding: "10px 12px",
-                        whiteSpace: 'pre-wrap',
-                        borderRadius: '8px',
-                        fontWeight: 'bold'
-                      }}
-                    >
-                      {row.routeTo?.replace(/###/g, "\n") || "No Route"}
-                    </Badge>
-                  </Flex>
+                {!fetchingSegments ? (
+                  <Select
+                    style={{ minWidth: "500px", transition: "all 0.3s ease-in-out" }}
+                    withinPortal
+                    mt={"sm"}
+                    rightSection={
+                      row.segment_id ? (
+                        <>
+                        <ActionIcon
+                          onClick={() => {
+                            setSelectedSegmentId(row.segment_id || -1);
+                            setTimeout(() => {
+                              setShowViewProspectsModal(true);
+                            }, 500);
+                            console.log('View prospects button clicked', row.segment_id);
+                            
+                          }}
+                        >
+                          <IconEye color='lightblue' size={16} />
+                        </ActionIcon>
+                        <Button
+                          color='orange'
+                          loading={loading}
+                          style={{ marginRight: "150px" }}
+                          size="xs"
+                          onClick={async () => {
+                            console.log('Backfill button clicked');
+                            try {
+                              setLoading(true);
+                              const response = await fetch(`${API_URL}/track/backfill_prospects`, {
+                                method: "POST",
+                                headers: {
+                                  "Content-Type": "application/json",
+                                  Authorization: `Bearer ${userToken}`,
+                                },
+                                body: JSON.stringify({ icp_route_id: row.icpRouteId, segment_id: row.segment_id }),
+                              });
+
+                              if (!response.ok) {
+                                throw new Error("Failed to backfill prospects");
+                              }
+
+                              const data = await response.json();
+                              showNotification({
+                                title: "Success",
+                                message: `Prospects moved into segment '${row.routeTo}' successfully. Total count: ${row.count}`,
+                                color: "green",
+                                icon: <IconCheck />,
+                              });
+                            } catch (error) {
+                              console.error("Error backfilling prospects:", error);
+                              showNotification({
+                                title: "Error",
+                                message: "Failed to backfill prospects",
+                                color: "red",
+                                icon: <IconCircleX />,
+                              });
+                            } finally {
+                              setLoading(false);
+                              getAllSegments(false);
+                            }
+                            // Add your backfill logic here
+                          }}
+                        >
+                          Sync ({row.count}) with segment
+                        </Button>
+                        </>
+                      ) : null
+                    }
+                    data={segmentOptions.map((segment) => ({
+                      value: segment.id.toString(),
+                      label: segment.segment_title,
+                    }))}
+                    label={row.segment_id ? null : <Text color="red">No Segment Attached</Text>}
+                    placeholder="Select Segment"
+                    value={row.segment_id?.toString() || ""}
+                    creatable
+                    searchable
+                    getCreateLabel={(query) => `+ Create ${query}`}
+                    onCreate={(query) => {
+                      getAllSegments(false)
+                      doStuff(query, row);
+                      return null
+                    }}
+                    onChange={(value) => {
+                      console.log('value changed', value);
+                      updateIcpRoute(row.icpRouteId || -1, {
+                        segment_id: value ? parseInt(value) : undefined,
+                      });
+                      row.segment_id = value ? parseInt(value) : undefined;
+                      showNotification({
+                        title: "Success",
+                        message: "Segment attached successfully",
+                        color: "green",
+                        icon: <IconCheck />,
+                      });
+                      // unfocus the select
+                      setTimeout(() => {
+                        (document.activeElement as HTMLElement)?.blur();
+                      }, 0);
+                      getAllSegments(false);
+                    }}
+                    onDropdownOpen={() => {
+                      console.log('Dropdown opened');
+                    }}
+                    onDropdownClose={() => {
+                      console.log('Dropdown closed');
+                    }}
+                  />
+                ) : (
+                  <Loader size="sm" />
+                )}
                 </Flex>
               </td>
               <td>
@@ -599,149 +959,6 @@ export default function ICPRouting() {
           </Text>
         </Box>
       </Flex>
-    <ScrollArea style={{ height: "40vh" }}>
-    <Paper withBorder radius={"sm"} p={"md"} mt={"md"} style={{ height: "40%" }}>
-      <Table mt={"md"} withBorder withColumnBorders style={{ height: "400px", overflowY: "auto" }}>
-        <thead>
-          <tr>
-            <th>
-              <Flex align={"center"} gap={"3px"}>
-                <Text color="gray">Name</Text>
-              </Flex>
-            </th>
-            <th>
-              <Flex align={"center"} gap={"3px"}>
-                <Text color="gray">Company</Text>
-              </Flex>
-            </th>
-            <th>
-              <Flex align={"center"} gap={"3px"}>
-                <Text color="gray">Title</Text>
-              </Flex>
-            </th>
-            <th>
-              <Flex align={"center"} gap={"3px"}>
-                <Text color="gray"># Visits</Text>
-              </Flex>
-            </th>
-            <th style={{ maxWidth: "300px" }}>
-              <Flex align={"center"} gap={"3px"}>
-                <Text color="gray">Visited Page</Text>
-              </Flex>
-            </th>
-            <th>
-              <Flex align={"center"} gap={"3px"}>
-                <Text color="gray">Last Visit</Text>
-              </Flex>
-            </th>
-            <th>
-              <Flex align={"center"} gap={"3px"}>
-                <Text color="gray">Routed Segment</Text>
-              </Flex>
-            </th>
-           
-          </tr>
-        </thead>
-        <tbody>
-          {webVisits.map((prospect) => (
-            <tr key={prospect.id}>
-              <td>
-                <Flex w={"100%"} h={"100%"} px={"sm"} align={"center"} justify={"start"}>
-                  <Avatar radius="xl" src={prospect.img_url} alt={prospect.full_name} size="md" mr="sm" />
-                  <Box>
-                    <Text size={"sm"} fw={500}>
-                      {prospect.full_name}
-                    </Text>
-                  </Box>
-                <ActionIcon
-                  component="a"
-                  href={prospect.linkedin_url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  title="LinkedIn Profile"
-                >
-                  <IconBrandLinkedin size={16} color="#0077B5" />
-                </ActionIcon>
-                </Flex>
-              </td>
-              <td>
-                <Flex w={"100%"} h={"100%"} px={"sm"} align={"center"} justify={"start"}>
-                  <Box>
-                    <Text size={"sm"} fw={500}>
-                      {prospect.company}
-                    </Text>
-                  </Box>
-                </Flex>
-              </td>
-              <td>
-                <Flex w={"100%"} h={"100%"} px={"sm"} align={"center"} justify={"start"}>
-                  <Box>
-                    <Text size={"sm"} fw={500}>
-                      {prospect.title}
-                    </Text>
-                  </Box>
-                </Flex>
-              </td>
-              <td>
-                <Flex w={"100%"} h={"100%"} px={"sm"} align={"center"} justify={"start"}>
-                  <Box>
-                    <Text size={"sm"} fw={500}>
-                      {prospect.window_locations.length}
-                    </Text>
-                  </Box>
-                </Flex>
-              </td>
-              <td>
-                <Flex style={{ maxWidth: "300px" }} h={"100%"} px={"sm"} align={"center"} justify={"start"}>
-                  <Box>
-                    <Text size={"sm"} fw={500}>
-                      {prospect.window_locations.map((location) => (
-                        <Popover position="top" withArrow shadow="md">
-                          <Popover.Target>
-                            <Badge size="sm" color="blue" variant="light" key={location}>
-                              {location.length > 40 ? `${location.slice(0, 37)}...` : location}
-                            </Badge>
-                          </Popover.Target>
-                          <Popover.Dropdown>
-                            <Text size="sm">{location}</Text>
-                          </Popover.Dropdown>
-                        </Popover>
-                      ))}
-                    </Text>
-                  </Box>
-                </Flex>
-              </td>
-              <td>
-                <Flex w={"100%"} h={"100%"} px={"sm"} align={"center"} justify={"start"}>
-                  <Box>
-                    <Text size={"sm"} fw={500}>
-                      {new Date(prospect.most_recent_visit).toLocaleString('en-US', {
-                        weekday: 'short',
-                        year: 'numeric',
-                        month: 'short',
-                        day: '2-digit',
-                        hour: '2-digit',
-                        minute: '2-digit',
-                      })}
-                    </Text>
-                  </Box>
-                </Flex>
-              </td>
-              <td>
-                <Flex w={"100%"} h={"100%"} px={"sm"} align={"center"} justify={"start"}>
-                  <Box>
-                    <Badge size="sm" color={prospect.segment_name ? "green" : "gray"} variant="light">
-                      {prospect.segment_name || "No Segment"}
-                    </Badge>
-                  </Box>
-                </Flex>
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </Table>
-    </Paper>
-    </ScrollArea>
     </div>
   );
 }

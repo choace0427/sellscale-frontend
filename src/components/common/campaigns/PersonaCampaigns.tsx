@@ -52,6 +52,9 @@ import {
   Indicator,
   ColorSwatch,
   Checkbox,
+  Alert,
+  Accordion,
+  HoverCard,
 } from "@mantine/core";
 import { useDisclosure, useHover } from "@mantine/hooks";
 import { openContextModal } from "@mantine/modals";
@@ -72,10 +75,12 @@ import {
   IconEdit,
   IconExternalLink,
   IconFlower,
+  IconInfoCircle,
   IconList,
   IconLoader,
   IconMail,
   IconMailbox,
+  IconMailOpened,
   IconMan,
   IconPhoto,
   IconPlaystationCircle,
@@ -105,7 +110,7 @@ import {
   getPersonasCampaignView,
   getPersonasOverview,
 } from "@utils/requests/getPersonas";
-import _ from "lodash";
+import _, { set } from "lodash";
 import moment from "moment";
 import { ReactNode, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
@@ -171,7 +176,10 @@ export type CampaignPersona = {
   smartlead_campaign_id?: number;
   meta_data?: Record<string, any>;
   first_message_delay_days?: number;
+  selix_session_id?: number;
+  latest_selix_task?: any;
   email_to_linkedin_connection?: string;
+  loadingQuickCampaign?: boolean;
   cycle?: number;
   setup_status?: string;
 };
@@ -185,7 +193,15 @@ export default function PersonaCampaigns() {
   const [projects, setProjects] = useState<PersonaOverview[]>([]);
   const [personas, setPersonas] = useState<CampaignPersona[]>([]);
 
+  const [singleEmailViewTab, setSingleEmailViewTab] = useState<string>("email");
+
   const [search, setSearch] = useState<string>("");
+
+  const [currentTab, setCurrentTab] = useState<string>("overview");
+
+  const handleTabChange = (value: string) => {
+    setCurrentTab(value);
+  };
 
   let filteredProjects = personas.filter((personas) =>
     personas.name.toLowerCase().includes(search.toLowerCase())
@@ -291,6 +307,130 @@ export default function PersonaCampaigns() {
       setAiActivityData(activity_data);
     }
   };
+
+
+  const createQuickCampaign = (sendOnAccept?: boolean, sendAfter3Days?: boolean) => {
+
+    const temp_id = Math.floor(Math.random() * Number.MAX_SAFE_INTEGER)
+
+    const newCampaign: CampaignPersona = {
+        id: temp_id, // Generate a large random integer for the ID
+        loadingQuickCampaign: true,
+        name: "Quick Campaign",
+        email_eligible: 100,
+        email_used: 0,
+        email_queued: 0,
+        email_sent: 0,
+        email_opened: 0,
+        email_replied: 0,
+        email_demo: 0,
+        email_bounced: 0,
+        email_removed: 0,
+        li_eligible: 100,
+        li_used: 0,
+        li_queued: 0,
+        li_sent: 0,
+        li_opened: 0,
+        li_replied: 0,
+        li_demo: 0,
+        li_failed: 0,
+        li_removed: 0,
+        active: true,
+        linkedin_active: true,
+        email_active: true,
+        created_at: new Date().toISOString(),
+        emoji: "🚀",
+        total_sent: 0,
+        total_opened: 0,
+        total_replied: 0,
+        total_pos_replied: 0,
+        total_demo: 0,
+        total_prospects: 0,
+        total_prospects_left_linkedin: 100,
+        total_prospects_left_email: 100,
+        total_used: 0,
+        sdr_name: userData?.sdr_name || "Unknown SDR",
+        sdr_img_url: userData?.img_url || "",
+        sdr_id: userData?.id || 0,
+        smartlead_campaign_id: undefined,
+        meta_data: {},
+        first_message_delay_days: 1,
+        selix_session_id: undefined,
+        latest_selix_task: undefined,
+        email_to_linkedin_connection: undefined,
+        cycle: 1,
+        setup_status: "ACTIVE",
+    };
+
+    setProjects((prevProjects) => [
+        ...prevProjects,
+        {
+            ...newCampaign,
+            num_prospects: 0,
+            num_unused_email_prospects: 0,
+            num_unused_li_prospects: 0,
+            icp_matching_prompt: "",
+            icp_matching_option_filters: [],
+            is_unassigned_contact_archetype: false,
+            persona_fit_reason: "",
+            persona_contact_objective: "",
+            contract_size: 0, // Add default value for missing property
+            avg_icp_fit_score: 0, // Add default value for missing property
+            li_bump_amount: 0, // Add default value for missing property
+            cta_framework_company: "", // Add default value for missing property
+            // Add other missing properties with default values here
+        } as unknown as PersonaOverview
+    ]);
+    setPersonas((prevPersonas) => [...prevPersonas, newCampaign]);
+    setTimeout(() => setShowActiveCampaigns(false), 300);
+    setTimeout(() => setShowActiveCampaigns(true), 500);
+
+  // INSERT_YOUR_CODE
+  const fetchQuickCampaignInfo = async () => {
+      try {
+          const response = await fetch(`${API_URL}/client/archetype/quickCampaign`, {
+              method: 'POST',
+              headers: {
+                  'Authorization': `Bearer ${userToken}`,
+                  'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({
+                  send_on_accept: sendOnAccept,
+                  send_email_after_3_days_sent_linkedin: sendAfter3Days,
+              }),
+          });
+
+          if (!response.ok) {
+              throw new Error('Failed to fetch quick campaign info');
+          }
+          const data = await response.json();
+
+          showNotification({
+              title: "Quick Campaign Created",
+              message: `A quick campaign has been created for ${data.prospect_name}.`,
+              color: "green",
+              icon: <IconCheck />,
+          });
+
+          window.location.href = `/campaign_v2/${data.campaign.id}`;
+
+          setPersonas((prevPersonas) =>
+              prevPersonas.map((persona) =>
+                  persona.id === temp_id
+                      ? { ...persona, ...data.campaign, id: data.campaign.id, loadingQuickCampaign: false }
+                      : persona
+              )
+          );
+      } catch (error) {
+          console.error('Error fetching quick campaign info:', error);
+      }
+  };
+
+  fetchQuickCampaignInfo();
+
+
+};
+
 
   useEffect(() => {
     fetchCampaignPersonas();
@@ -455,9 +595,96 @@ export default function PersonaCampaigns() {
                 >
                   Duplicate Campaign
                 </Menu.Item>
+                <Menu.Item
+                  icon={<IconMail size="1rem" />}
+                  onClick={() => {
+                    openContextModal({
+                      modal: "singleEmailCampaignModal",
+                      title: <Title order={3}>One-off message
+                      </Title>,
+                      innerProps: {
+                        setCurrentTab: setCurrentTab,
+                        fetchAllCampaigns: fetchCampaignPersonas,
+                      },
+                    });
+                  }}
+                >
+                  One-off Message Campaign
+                </Menu.Item>
+                <Menu.Item
+                  icon={<IconMail size="1rem" />}
+                  onClick={() => {
+                    openContextModal({
+                      modal: "singleEmailCampaignBetaModal",
+                      title: (
+                        <Title order={3}>Single Email Campaign (BETA)</Title>
+                      ),
+                      innerProps: {
+                        setCurrentTab: setCurrentTab,
+                        fetchAllCampaigns: fetchCampaignPersonas,
+                      },
+                      styles: {
+                        content: {
+                          minWidth: "750px",
+                        },
+                      },
+                    });
+                  }}
+                >
+                  Single Email Campaign (BETA)
+                </Menu.Item>
               </Menu.Dropdown>
             </Menu>
           </Button.Group>
+          {window.location.href.includes("internal") && (
+            <HoverCard width={500} shadow="md">
+              <HoverCard.Target>
+                <Button color="green" onClick={()=>{createQuickCampaign(undefined)}}>
+                  Quick Campaign
+                </Button>
+              </HoverCard.Target>
+              <HoverCard.Dropdown w={500}>
+                <Group spacing="xs">
+                  <Title order={4}>Immediate Activation</Title>
+                  <Button disabled color="blue" fullWidth mb="xs">Email Templates Only</Button>
+                  <Button disabled color="red" fullWidth mb="xs">Linkedin Templates Only</Button>
+                  <Button disabled color="yellow" fullWidth mb="xs">Email & Linkedin Templates Only</Button>
+                  <Button disabled color="teal" fullWidth mb="xs">Both Channels OmniChannel</Button>
+                </Group>
+                <Group spacing="xs" mt="md">
+                  <Title order={4}>No Activation</Title>
+                  {/*  */}
+                  <HoverCard width={300} shadow="md">
+                    <HoverCard.Target>
+                      <Button onClick={() => createQuickCampaign(undefined, true)} color="violet" fullWidth>Omnichannel Linkedin to Email (Send After No reply 3 days)</Button>
+                    </HoverCard.Target>
+                    <HoverCard.Dropdown>
+                      <Text size="sm">
+                        This option will generate a placeholder linkedin conversation entry for the prospect, and move the prospect to `SENT_OUTREACH`, with this record 4 days ago.
+                        Allows us to test generation of the omnichannel parameter
+                      </Text>
+                    </HoverCard.Dropdown>
+                  </HoverCard>
+                  {/*  */}
+                  <HoverCard width={300} shadow="md">
+                    <HoverCard.Target>
+                      <Button color="lime" fullWidth onClick={() => createQuickCampaign(true)}>Omnichannel Linkedin to Email Send on Acceptance</Button>
+                    </HoverCard.Target>
+                    <HoverCard.Dropdown>
+                      <Text size="sm">
+                        This option will generate a placeholder linkedin conversation entry for the prospect, and move the prospect to `ACCEPTED`.
+                        Allows us to test generation of the omnichannel parameter
+                      </Text>
+                    </HoverCard.Dropdown>
+                  </HoverCard>
+                  {/*  */}
+                  <Button disabled color="gray" fullWidth mb="xs">Omnichannel Email to Linkedin</Button>
+                  <Button disabled color="lime" fullWidth mb="xs">10 Prospects Both Templates</Button>
+                  <Button disabled color="cyan" fullWidth mb="xs">50 Prospects Both Templates</Button>
+                </Group>
+              </HoverCard.Dropdown>
+            </HoverCard>
+          )}
         </Group>
       </Group>
     </>
@@ -466,7 +693,11 @@ export default function PersonaCampaigns() {
   return (
     <PageFrame>
       <Stack>
-        <Tabs keepMounted={false} defaultValue="overview">
+        <Tabs
+          onTabChange={(value) => setCurrentTab(value as string)}
+          value={currentTab}
+          keepMounted={false}
+        >
           <Tabs.List mb="md">
             <Tabs.Tab
               value="overview"
@@ -1065,6 +1296,167 @@ export function PersonCampaignCard(props: {
   ] = useDisclosure(false);
 
   const ChannelModal = () => {
+
+
+    const ActiveConvoOOODropdown = () => {
+
+      return (
+        <Accordion>
+          <Accordion.Item value="active-convo-ooo">
+            <Accordion.Control>
+              <Text fw={600} color="gray">
+                Out-Of-Office Conversations
+              </Text>
+            </Accordion.Control>
+            <Accordion.Panel>
+              {outOfOfficeCampaignList?.map((item, index) => (
+                  <Group
+                    grow
+                    style={{
+                      justifyContent: "start",
+                      gap: "0px",
+                    }}
+                    key={index}
+                  >
+                    <Flex
+                      mx={25}
+                      w={"100%"}
+                      style={{
+                        borderRadius: "10px",
+                        border: "3px solid #e9ecef",
+                      }}
+                    >
+                      <Box
+                        px={15}
+                        py={12}
+                        style={{
+                          borderRight: "3px solid #e9ecef",
+                          position: "relative",
+                        }}
+                        w={"30rem"}
+                      >
+                        <Flex align={"center"} gap={10} mb={8}>
+                          <Avatar src={item.img_url} radius="xl" size="lg" />
+                          <Button
+                            style={{
+                              position: "absolute",
+                              top: 15,
+                              right: 10,
+                            }}
+                            size="xs"
+                            variant="default"
+                            compact
+                            component="a"
+                            target="_blank"
+                            href={`/prospects/${item.prospect_id}`}
+                          >
+                            Open Convo
+                          </Button>
+                          <Box>
+                            <Flex align={"center"} gap={10}>
+                              <Text fw={600}>{item.prospect_name}</Text>
+                            </Flex>
+                            <Flex align={"center"} gap={10} w={"100%"} mt={3}>
+                              <Text>ICP Score: </Text>
+                              <Badge
+                                color={
+                                  item.prospect_icp_fit_score === "VERY HIGH"
+                                    ? "green"
+                                    : item.prospect_icp_fit_score === "HIGH"
+                                    ? "blue"
+                                    : item.prospect_icp_fit_score === "MEDIUM"
+                                    ? "yellow"
+                                    : item.prospect_icp_fit_score === "LOW"
+                                    ? "orange"
+                                    : item.prospect_icp_fit_score === "VERY LOW"
+                                    ? "red"
+                                    : "gray"
+                                }
+                                fw={600}
+                              >
+                                {item.prospect_icp_fit_score}
+                              </Badge>
+                            </Flex>
+                          </Box>
+                        </Flex>
+                        <Flex gap={6}>
+                          <div className="mt-1">
+                            <IconMan size={20} color="#817e7e" />
+                          </div>
+                          <Text color="#817e7e" mt={3}>
+                            {campaignName}
+                          </Text>
+                        </Flex>
+                        <Flex gap={6}>
+                          <div className="mt-1">
+                            <IconBriefcase size={20} color="#817e7e" />
+                          </div>
+                          <Text color="#817e7e" mt={3}>
+                            {item.prospect_title}
+                          </Text>
+                        </Flex>
+                        <Flex gap={6}>
+                          <div className="mt-1">
+                            <IconBuilding size={20} color="#817e7e" />
+                          </div>
+                          <Text color="#817e7e" mt={3}>
+                            {item.prospect_company}
+                          </Text>
+                        </Flex>
+                      </Box>
+                      <Box px={15} py={12} w={"100%"}>
+                        <Flex justify={"space-between"}>
+                          <Text color="#817e7e" fw={600}>
+                            {item?.last_message_from_prospect?.includes(
+                              "no response yet."
+                            )
+                              ? "Last Message From You:"
+                              : "Last Message From Prospect:"}
+                          </Text>
+                          <Text color="#817e7e">
+                            {item.last_message_timestamp}
+                          </Text>
+                        </Flex>
+                        <Box
+                          bg={
+                            value === "sent"
+                              ? "#e7f5ff"
+                              : value === "open"
+                              ? "#ffedff"
+                              : value === "reply"
+                              ? "#fff5ee"
+                              : value === "pos_reply"
+                              ? "#F6E4FF"
+                              : "#e2f6e7"
+                          }
+                          p={20}
+                          mt={15}
+                          style={{
+                            borderRadius: "10px",
+                          }}
+                        >
+                          <Text fw={500}>
+                            {item?.last_message_from_prospect?.includes(
+                              "no response yet."
+                            )
+                              ? item?.last_message_from_prospect.split(
+                                  "no response yet.###"
+                                )[1]
+                              : item?.last_message_from_prospect}
+                          </Text>
+                        </Box>
+                      </Box>
+                    </Flex>
+                  </Group>
+                ))}
+            </Accordion.Panel>
+          </Accordion.Item>
+        </Accordion>
+      );
+    }
+
+
+
     return (
       <Modal
         opened={channelOpened}
@@ -1224,7 +1616,9 @@ export function PersonCampaignCard(props: {
           </Group>
           <ScrollArea h={600} scrollbarSize={6}>
             <Flex direction={"column"} gap={20} my={20}>
-              {filteredCampaignList?.map((item, index) => {
+              {filteredCampaignList
+                ?.filter((item) => item.outreach_status !== 'ACTIVE_CONVO_OOO')
+                .map((item, index) => {
                 return (
                   <Group
                     grow
@@ -1323,8 +1717,10 @@ export function PersonCampaignCard(props: {
                       <Box px={15} py={12} w={"100%"}>
                         <Flex justify={"space-between"}>
                           <Text color="#817e7e" fw={600}>
-                            {item?.last_message_from_prospect?.includes("no response yet.") 
-                              ? "Last Message From Prospect:" 
+                            {item?.last_message_from_prospect?.includes(
+                              "no response yet."
+                            )
+                              ? "Last Message From You:"
                               : "Last Message From Prospect:"}
                           </Text>
                           <Text color="#817e7e">
@@ -1349,17 +1745,22 @@ export function PersonCampaignCard(props: {
                             borderRadius: "10px",
                           }}
                         >
-                       <Text fw={500}>
-                        {item?.last_message_from_prospect?.includes("no response yet.") 
-                          ? item?.last_message_from_prospect
-                          : item?.last_message_from_prospect}
-                      </Text>
+                          <Text fw={500}>
+                            {item?.last_message_from_prospect?.includes(
+                              "no response yet."
+                            )
+                              ? item?.last_message_from_prospect.split(
+                                  "no response yet.###"
+                                )[1]
+                              : item?.last_message_from_prospect}
+                          </Text>
                         </Box>
                       </Box>
                     </Flex>
                   </Group>
                 );
               })}
+            {outOfOfficeCampaignList.length > 0 && <ActiveConvoOOODropdown/>}
             </Flex>
           </ScrollArea>
         </Modal.Body>
@@ -1391,47 +1792,95 @@ export function PersonCampaignCard(props: {
       .then((result) => {
         channelOpen();
 
-      const parsedResult = JSON.parse(result).analytics;
-      parsedResult.forEach((item: any) => {
-        if (item?.last_message_from_prospect?.includes("no response yet.")) {
-          item.no_response_yet = true;
-        } else {
-          item.no_response_yet = false;
-        }
-      });
-      setCampaignList(parsedResult);
+        const parsedResult = JSON.parse(result).analytics;
+        parsedResult.forEach((item: any) => {
+          if (item?.last_message_from_prospect?.includes("no response yet.")) {
+            item.no_response_yet = true;
+          } else {
+            item.no_response_yet = false;
+          }
+        });
+        setCampaignList(parsedResult);
 
         setCampaignList(JSON.parse(result).analytics);
       })
       .catch((error) => console.log("error", error));
   };
 
+  const isOutOfOffice = (message: string) => {
+    const oooPhrases = [
+      "out of office", 
+      "on vacation", 
+      "away from office", 
+      "out of the office",
+      "on leave",
+      "taking a break",
+      "unavailable until",
+      "on medical leave",
+      "will not be checking my work email or work phone",
+      "If you need urgent attention",
+    ];
+    const oooRegex = new RegExp(oooPhrases.join("|"), "i");
+    return oooRegex.test(message);
+  };
+
   const filteredCampaignList = useMemo(() => {
+    const uniqueProspects = new Set();
+    const filterUnique = (item: any) => {
+      if (!uniqueProspects.has(item.prospect_name)) {
+        uniqueProspects.add(item.prospect_name);
+        return true;
+      }
+      return false;
+    };
+
     if (value === "sent") {
       return campaignList?.filter(
-        (item: any) => item.to_status === "SENT_OUTREACH"
+        (item: any) => item.to_status === "SENT_OUTREACH" && filterUnique(item)
       );
     } else if (value === "open") {
       return campaignList?.filter(
         (item: any) =>
-          item.to_status === "ACCEPTED" || item.to_status === "EMAIL_OPENED"
+          (item.to_status === "ACCEPTED" ||
+          item.to_status === "EMAIL_OPENED" ||
+          item.to_status.includes("ACTIVE_CONVO")) &&
+          item.to_status !== "ACTIVE_CONVO_OOO" &&
+          !isOutOfOffice(item.last_message_from_prospect || "") &&
+          filterUnique(item)
       );
     } else if (value === "reply") {
       return campaignList?.filter(
-        (item: any) => item.to_status === "ACTIVE_CONVO"
+        (item: any) => 
+          item.to_status.includes("ACTIVE_CONVO") &&
+          item.to_status !== "ACTIVE_CONVO_OOO" &&
+          !isOutOfOffice(item.last_message_from_prospect || "") &&
+          filterUnique(item)
       );
     } else if (value === "demo") {
-      return campaignList?.filter((item: any) => item.to_status === "DEMO_SET");
+      return campaignList?.filter(
+        (item: any) => item.to_status === "DEMO_SET" && filterUnique(item)
+      );
     } else if (value === "pos_reply") {
       return campaignList?.filter((item: any) =>
         [
           "ACTIVE_CONVO_SCHEDULING",
           "ACTIVE_CONVO_NEXT_STEPS",
           "ACTIVE_CONVO_QUESTION",
-        ].includes(item.to_status)
+        ].includes(item.to_status) && filterUnique(item)
       );
     }
   }, [value, campaignList]);
+
+  const outOfOfficeCampaignList = useMemo(() => {
+    const uniqueProspects = new Set();
+    return campaignList?.filter((item: any) => 
+      (item.to_status === 'ACTIVE_CONVO_OOO' || 
+      isOutOfOffice(item.last_message_from_prospect || "")) &&
+      !uniqueProspects.has(item.prospect_name) &&
+      uniqueProspects.add(item.prospect_name)
+    );
+  }, [campaignList]);
+
 
   const unusedProspects =
     (props.project?.num_unused_email_prospects ?? 0) +
@@ -1554,13 +2003,13 @@ export function PersonCampaignCard(props: {
         >
           <Group sx={{ width: "130px", padding: "0 4px" }}>
             <Flex
-              onClick={() => {
-                navigateToPage(
-                  navigate,
-                  `/contacts`,
-                  new URLSearchParams(`?campaign_id=${props.persona.id}`)
-                );
-              }}
+              // onClick={() => {
+              //   navigateToPage(
+              //     navigate,
+              //     `/contacts`,
+              //     new URLSearchParams(`?campaign_id=${props.persona.id}`)
+              //   );
+              // }}
               mt={5}
               w={"100%"}
               gap={"5px"}
@@ -1663,13 +2112,17 @@ export function PersonCampaignCard(props: {
                 </Popover.Dropdown>
               </Popover>
               <Popover
+                withinPortal
                 width={350}
                 position="bottom"
                 shadow="lg"
                 opened={statuspopoverOpened}
               >
                 <Popover.Target>
-                  <Box>
+                  <Box
+                    onMouseEnter={statusopenPopover}
+                    onMouseLeave={statusclosePopover}
+                  >
                     <Badge
                       size="xs"
                       color={
@@ -1681,8 +2134,6 @@ export function PersonCampaignCard(props: {
                           ? "red"
                           : "gray"
                       }
-                      onMouseEnter={statusopenPopover}
-                      onMouseLeave={statusclosePopover}
                     >
                       {props.persona.setup_status}
                     </Badge>
@@ -1698,8 +2149,74 @@ export function PersonCampaignCard(props: {
                     )}
                   </Box>
                 </Popover.Target>
-                <Popover.Dropdown sx={{ borderRadius: "8px" }} p={"xl"}>
-                  <Flex gap={"sm"} align={"center"}>
+                <Popover.Dropdown
+                  sx={{ borderRadius: "8px", transform: "translateY(-10px)" }}
+                  p={"xl"}
+                  onMouseEnter={statusopenPopover}
+                  onMouseLeave={statusclosePopover}
+                >
+                  {props.persona?.selix_session_id ? (
+                    <>
+                      <Tooltip label="Jump to Selix Session" withArrow>
+                        <ActionIcon
+                          w="100%"
+                          onClick={() => {
+                            window.open(`/selix?session_id=${props.persona?.selix_session_id}`, '_blank');
+                          }}
+                          size="sm"
+                          ml="4px"
+                        >
+                          <Badge color="grape" size="xs" w="100%">
+                            Jump to Selix Session <IconExternalLink size="0.8rem" style={{ marginLeft: '4px', marginTop:'2px' }} />
+                          </Badge>
+                        </ActionIcon>
+                      </Tooltip>
+                      {props.persona?.latest_selix_task && (
+                        <Flex w="100%" align="center" gap="md">
+                          <Text size="xs">
+                            Current task:{" "}
+                            <b>{props.persona.latest_selix_task.title}</b>
+                          </Text>
+                          <Badge
+                            w="150px"
+                            size="xs"
+                            color={
+                              props.persona.latest_selix_task.status === "QUEUED"
+                                ? "yellow"
+                                : props.persona.latest_selix_task.status === "IN_PROGRESS"
+                                ? "blue"
+                                : props.persona.latest_selix_task.status === "IN_PROGRESS_REVIEW_NEEDED"
+                                ? "orange"
+                                : props.persona.latest_selix_task.status === "COMPLETE"
+                                ? "green"
+                                : props.persona.latest_selix_task.status === "CANCELLED"
+                                ? "red"
+                                : props.persona.latest_selix_task.status === "BLOCKED"
+                                ? "black"
+                                : "gray"
+                            }
+                            sx={{ whiteSpace: 'nowrap', }}
+                          >
+                            {props.persona.latest_selix_task.status}
+                          </Badge>
+                        </Flex>
+                      )}
+                    </>
+                  ) : (
+
+                    <Alert
+                      icon={<IconInfoCircle size={20} />}
+                      // title={<Text fw={700} size="md">Notice</Text>}
+                      color="blue"
+                      variant="filled"
+                      w="100%"
+                      mt="md"
+                      sx={{ borderLeft: '4px solid #228be6', padding: '10px' }}
+                    >
+                      <Text size="sm">No Selix Session</Text>
+                    </Alert>
+                  )}
+                  {/* <Flex gap={"sm"} align={"center"}>
                     <IconLoader color="#228be6" />{" "}
                     <Text fw={700} size={"lg"}>
                       Campaign Status Overview
@@ -1784,7 +2301,7 @@ export function PersonCampaignCard(props: {
                     <Text color="gray" size={"xs"}>
                       Verify prospects.
                     </Text>
-                  </Box>
+                  </Box> */}
                 </Popover.Dropdown>
               </Popover>
             </Flex>
@@ -2023,7 +2540,7 @@ export function PersonCampaignCard(props: {
                   width="w-[93px]"
                   icon={<IconSend color={theme.colors.blue[6]} size="0.9rem" />}
                   label="Sent"
-                  total={total_sent ?? 0}
+                  total={liNumerator + emailNumerator ?? 0}
                   percentage={Math.floor(
                     ((total_sent ?? 0) / (total_sent || 1)) * 100
                   )}
@@ -2492,6 +3009,21 @@ function CampaignProgressDropdown(props: {
         </Text>
       </Box>
 
+      <Divider my={"sm"} />
+
+      <List>
+        <Flex align={"center"} justify={"space-between"}>
+          <List.Item sx={{ color: "gray", fontSize: "14px" }} fw={500}>
+            Queued:
+          </List.Item>
+          <Text fw={600} size={"sm"}>
+            {total_queued}
+          </Text>
+        </Flex>
+      </List>
+
+<Divider my={"sm"} />
+
       <Box mt={"md"}>
         <Text size={"md"} fw={700}>
           SUMMARY
@@ -2524,22 +3056,6 @@ function CampaignProgressDropdown(props: {
           </Text>
         </Flex>
       </List>
-
-      <Divider my={"sm"} />
-      <Divider my={"sm"} />
-
-      <List>
-        <Flex align={"center"} justify={"space-between"}>
-          <List.Item sx={{ color: "gray", fontSize: "14px" }} fw={500}>
-            Queued:
-          </List.Item>
-          <Text fw={600} size={"sm"}>
-            {total_queued}
-          </Text>
-        </Flex>
-      </List>
-
-      <Divider my={"sm"} />
 
       <Box>
         <Text size={"md"} fw={700}>
@@ -3150,18 +3666,35 @@ export const PersonCampaignTable = (props: {
         ))}
       {!props.showCycles &&
         data.map((persona, index) => (
-          <PersonCampaignCard
-            showAvatar={props.showAvatar}
-            key={index}
-            persona={persona}
-            project={props.projects?.find(
-              (project) => project.id == persona.id
+          <Box key={index}>
+            <PersonCampaignCard
+              showAvatar={props.showAvatar}
+              persona={persona}
+              project={props.projects?.find(
+                (project) => project.id == persona.id
+              )}
+              viewMode={props.campaignViewMode}
+              onPersonaActiveStatusUpdate={props.onPersonaActiveStatusUpdate}
+              showCycles={props.showCycles}
+            />
+            {persona.loadingQuickCampaign && (
+              <div
+                style={{
+                  top: "50%",
+                  left: "50%",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                }}
+              >
+               {'Gathering Info'} <Loader variant="dots"/>
+              </div>
             )}
-            viewMode={props.campaignViewMode}
-            onPersonaActiveStatusUpdate={props.onPersonaActiveStatusUpdate}
-            showCycles={props.showCycles}
-          />
-        ))}
+          </Box>
+        ))
+
+      }
+
     </Box>
   );
 };

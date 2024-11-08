@@ -151,7 +151,11 @@ export function LineChart() {
   }
 
   const chartData = {
-    labels: demosLabels, // Assuming all labels are the same after filtering weekends
+    labels: demosLabels.map((dateString: string) => {
+      const date = new Date(dateString);
+      date.setDate(date.getDate() + 1);
+      return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    }),
     datasets: [
       {
         label: "Total Demos",
@@ -161,6 +165,7 @@ export function LineChart() {
         borderWidth: 1,
         pointHoverRadius: 5,
         pointHoverBackgroundColor: theme.colors.green[6],
+        tension: 0.4,
       },
       {
         label: "Total Positive Replies",
@@ -170,6 +175,7 @@ export function LineChart() {
         borderWidth: 1,
         pointHoverRadius: 5,
         pointHoverBackgroundColor: theme.colors.grape[6],
+        tension: 0.4,
       },
       {
         label: "Total Replies",
@@ -179,6 +185,7 @@ export function LineChart() {
         borderWidth: 1,
         pointHoverRadius: 5,
         pointHoverBackgroundColor: theme.colors.blue[6],
+        tension: 0.4,
       },
       {
         label: "Total Acceptances",
@@ -188,6 +195,7 @@ export function LineChart() {
         borderWidth: 1,
         pointHoverRadius: 5,
         pointHoverBackgroundColor: theme.colors.red[6],
+        tension: 0.4,
       },
       {
         label: "Total Outbound Volume",
@@ -197,6 +205,7 @@ export function LineChart() {
         borderWidth: 1,
         pointHoverRadius: 5,
         pointHoverBackgroundColor: theme.colors.yellow[6],
+        tension: 0.4,
       },
     ],
   };
@@ -314,15 +323,13 @@ export default function HomePageV2() {
   const [numOperatorDashItems, setNumOperatorDashItems] = useState(0);
   const [request, setRequest] = useState("");
 
-  const [
-    campaignAnalyticData,
-    setCampaignAnalyticData,
-  ] = useState<CampaignAnalyticsData>({
-    sentOutreach: 0,
-    accepted: 0,
-    activeConvos: 0,
-    demos: 0,
-  });
+  const [campaignAnalyticData, setCampaignAnalyticData] =
+    useState<CampaignAnalyticsData>({
+      sentOutreach: 0,
+      accepted: 0,
+      activeConvos: 0,
+      demos: 0,
+    });
 
   const [aiActivityData, setAiActivityData] = useState<TodayActivityData>({
     totalActivity: 0,
@@ -411,20 +418,19 @@ export default function HomePageV2() {
       </Flex>
       <TodayActivityV2 aiActivityData={aiActivityData} />
       <PositiveResponses />
-      <Divider w={"100%"} />
-      <Flex gap={"lg"} direction={{ base: "column", lg: "row" }}>
-        <LineChart />
-        <OperatorDashboardV2
-          onOperatorDashboardEntriesChange={(task: Task[]) => {
-            setNumOperatorDashItems(task.length);
-          }}
-        />
-      </Flex>
-
-      <PipelineOverviewV2 />
+      {/* <Divider w={"100%"} /> */}
+      <OperatorDashboardV2
+        onOperatorDashboardEntriesChange={(task: Task[]) => {
+          setNumOperatorDashItems(task.length);
+        }}
+      />
+      <LineChart />
+      {/* <Flex gap={"lg"} direction={{ base: "column", lg: "row" }}> */}
+      {/* </Flex> */}
 
       <CampaignUtilization />
       <UnreadInboxes />
+      <PipelineOverviewV2 />
     </Flex>
   );
 }

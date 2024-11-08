@@ -49,7 +49,7 @@ import Tour from "reactour";
 import Logo from "../../../assets/images/logo.png";
 import { DataGrid } from "mantine-data-grid";
 import { API_URL } from "@constants/data";
-import { openContextModal } from "@mantine/modals";
+import { closeAllModals, closeModal, openContextModal } from "@mantine/modals";
 import { set } from "lodash";
 import DeepGram from "@common/DeepGram";
 
@@ -57,10 +57,14 @@ export default function SellScaleAssistant({
   setHasNotGeneratedPrefilter,
   showChat = true,
   refresh = false,
+  onEditClicked = () => {},
+  onEditClosed = () => {},
 }: {
   setHasNotGeneratedPrefilter?: (value: boolean) => void;
   showChat?: boolean;
   refresh?: boolean;
+  onEditClicked?: () => void;
+  onEditClosed?: () => void;
 }) {
   useEffect(() => {
     const tourSeen = localStorage.getItem("filterTourSeen");
@@ -130,6 +134,8 @@ export default function SellScaleAssistant({
           segment={segment}
           showChat={showChat}
           refresh={refresh}
+          onEditClicked={onEditClicked}
+          onEditClosed={onEditClosed}
         />
       </Flex>
     </Box>
@@ -400,6 +406,7 @@ const SegmentAIGeneration = (props: any) => {
     "extra-asset-1.pdf",
   ]);
   const [generatingFilters, setGeneratingFilters] = useState(false);
+  const [generatingBlankFilter, setGeneratingBlankFilter] = useState(false);
   const [loadingIndex, setLoadingIndex] = useState<number>(0);
   const userToken = useRecoilValue(userTokenState);
 
@@ -437,6 +444,41 @@ const SegmentAIGeneration = (props: any) => {
       return updatedSegments;
     });
   };
+
+  const handleBlankResponse = async () => {
+    setGeneratingBlankFilter(true);
+    try {
+      const response = await fetch(`${API_URL}/contacts/new-blank-icp`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${userToken}`,
+        },
+      });
+
+      const data = await response.json();
+      if (!response.ok) {
+        console.error("Error handling chat ICP:", data.message);
+        return;
+      }
+
+      console.log("data is", data.data);
+
+      props.setSegment((prevSegments: any) => [
+        ...prevSegments,
+        {
+          makers: data["makers"],
+          industry: data["industry"],
+          pain_point: data["pain_point"],
+          id: data?.data?.saved_query_id,
+          total_entries: data?.data?.pagination?.total_entries,
+        },
+      ]);
+    } catch (error) {
+      console.error("Error handling chat ICP:", error);
+    }
+    setGeneratingBlankFilter(false);
+  }
 
   const [prefilters, setPrefilters] = useState<any>([]);
 
@@ -562,7 +604,58 @@ const SegmentAIGeneration = (props: any) => {
                 <IconLoader size={"1rem"} color="orange" />
               )
             }
-            title={!showChat ? "" : "Generated Segments"}
+            title={
+              !showChat ? (
+                <Flex align="center" gap="sm">
+                <Button
+                  loading={generatingBlankFilter}
+                  mt="md"
+                  color="grape"
+                  size="sm"
+                  leftIcon={<IconPlus size={"1rem"} />}
+                  style={{ marginLeft: "auto" }}
+                  onClick={() => {
+                    handleBlankResponse();
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.transform = "scale(1.05)";
+                    e.currentTarget.style.transition = "transform 0.2s";
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.transform = "scale(1)";
+                    e.currentTarget.style.transition = "transform 0.2s";
+                  }}
+                >
+                  New ICP Filter
+                </Button>
+                </Flex>
+              ) : (
+                <Flex align="center" gap="sm">
+                  Generated Segments
+                  <Button
+                    loading={generatingBlankFilter}
+                    mt="md"
+                    color="grape"
+                    size="sm"
+                    leftIcon={<IconPlus size={"1rem"} />}
+                    style={{ marginLeft: "auto" }}
+                    onClick={() => {
+                      handleBlankResponse();
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.transform = "scale(1.05)";
+                      e.currentTarget.style.transition = "transform 0.2s";
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.transform = "scale(1)";
+                      e.currentTarget.style.transition = "transform 0.2s";
+                    }}
+                  >
+                    New ICP Filter
+                  </Button>
+                </Flex>
+              )
+            }
           >
             <table
               style={{
@@ -726,6 +819,7 @@ const SegmentAIGeneration = (props: any) => {
                                   onClose: () => {
                                     props.setSegment([]);
                                     fetchSavedQueries();
+                                    props.onEditClosed();
                                   },
                                   innerProps: { id: element.id },
                                   centered: true,
@@ -846,6 +940,7 @@ const SegmentAIGeneration = (props: any) => {
                               //     query: `I have an idea for the segment: ${element.makers}. This segment is about ${element.industry}. The value proposition is ${element.pain_point}.`
                               //   }),
                               // });
+                              props.onEditClicked();
 
                               openContextModal({
                                 modal: "prefilterEditModal",
@@ -863,6 +958,7 @@ const SegmentAIGeneration = (props: any) => {
                                 ),
                                 onClose: () => {
                                   props.setSegment([]);
+                                  props.onEditClosed();
                                   fetchSavedQueries();
                                 },
                                 innerProps: { id: element.id },

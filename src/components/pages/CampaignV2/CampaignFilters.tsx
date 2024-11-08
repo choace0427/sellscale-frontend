@@ -26,6 +26,7 @@ import {
   Paper,
   ActionIcon,
   Progress,
+  Select,
 } from "@mantine/core";
 import React, { useEffect, useState } from "react";
 import { useRecoilValue } from "recoil";
@@ -34,7 +35,13 @@ import { API_URL } from "@constants/data";
 import { useQueryClient } from "@tanstack/react-query";
 import { showNotification } from "@mantine/notifications";
 import { IconSparkles } from "@tabler/icons-react";
-import { IconTrash, IconUser, IconUsers } from "@tabler/icons";
+import {
+  IconChevronLeft,
+  IconFilter,
+  IconTrash,
+  IconUser,
+  IconUsers,
+} from "@tabler/icons";
 
 interface CampaignFiltersProps {
   prospects: Prospect[];
@@ -48,6 +55,7 @@ interface CampaignFiltersProps {
   setHeaderSet: React.Dispatch<React.SetStateAction<Set<string>>>;
   setProgrammaticUpdates: React.Dispatch<React.SetStateAction<Set<number>>>;
   programmaticUpdates: Set<number>;
+  setCollapseFilters: React.Dispatch<React.SetStateAction<boolean>>;
 }
 
 const CampaignFilters = function ({
@@ -60,6 +68,7 @@ const CampaignFilters = function ({
   setHeaderSet,
   setProgrammaticUpdates,
   programmaticUpdates,
+  setCollapseFilters,
 }: CampaignFiltersProps) {
   const userToken = useRecoilValue(userTokenState);
   const [viewIndividualAIFilters, setViewIndividualAIFilters] =
@@ -74,6 +83,10 @@ const CampaignFilters = function ({
       setIsScoring(0);
     }
   }, [programmaticUpdates]);
+
+  useEffect(() => {
+    fetchSavedQueries();
+  }, [userToken]);
 
   const [
     included_individual_title_keywords,
@@ -242,74 +255,109 @@ const CampaignFilters = function ({
     icp_scoring_ruleset.company_ai_filters ?? []
   );
 
-  const [individual_ai_title, setIndividualAITitle] = useState<string>("");
-  const [individual_ai_prompt, setIndividualAIPrompt] = useState<string>("");
-  const [individual_ai_dealbreaker, setIndividualAIDealbreaker] =
-    useState<boolean>(false);
-  const [individual_ai_personalizer, setIndividualAIPersonalizer] =
-    useState<boolean>(false);
-  const [individual_ai_use_linkedin, setIndividualAIUseLinkedin] =
-    useState<boolean>(false);
-
-  const [company_ai_title, setCompanyAITitle] = useState<string>("");
-  const [company_ai_prompt, setCompanyAIPrompt] = useState<string>("");
-  const [company_ai_dealbreaker, setCompanyAIDealbreaker] =
-    useState<boolean>(false);
-  const [company_ai_personalizer, setCompanyAIPersonalizer] =
-    useState<boolean>(false);
-  const [company_ai_use_linkedin, setCompanyAIUseLinkedin] =
-    useState<boolean>(false);
+  const [ai_title, setAITitle] = useState<string>("");
+  const [prefilters, setPrefilters] = useState<any[]>([]);
+  const [selectedFilter, setSelectedFilter] = useState<string | null>(null);
+  const [ai_prompt, setAIPrompt] = useState<string>("");
+  const [ai_relevancy, setAIRelevancy] = useState<string>("");
+  const [ai_dealbreaker, setAIDealbreaker] = useState<boolean>(false);
+  const [ai_personalizer, setAIPersonalizer] = useState<boolean>(false);
+  const [ai_use_linkedin, setAIUseLinkedin] = useState<boolean>(false);
 
   const [scoreLoading, setScoreLoading] = useState(false);
 
   const queryClient = useQueryClient();
 
-  const onAddIndividualAIFilters = (
+  const onAddIndividualAIFilters = async (
     title: string,
     prompt: string,
-    use_linkedin: boolean
+    use_linkedin: boolean,
+    relevancy: string
   ) => {
     const key = "aiind_" + title.toLowerCase().split(" ").join("_");
-    setIndividualAIFilters([
+    const newIndividualAIFilters = [
       ...individual_ai_filters,
-      { key: key, title: title, prompt: prompt, use_linkedin: use_linkedin },
-    ]);
+      {
+        key: key,
+        title: title,
+        prompt: prompt,
+        use_linkedin: use_linkedin,
+        relevancy: relevancy,
+      },
+    ];
+    let newDealbreaker = [...dealbreakers];
+    let newIndividualAIPersonalizer = [...individual_personalizers];
 
-    if (individual_ai_dealbreaker) {
+    setIndividualAIFilters(newIndividualAIFilters);
+
+    if (ai_dealbreaker) {
+      newDealbreaker = [...dealbreakers, key];
       setDealBreakers([...dealbreakers, key]);
     }
-    if (individual_ai_personalizer) {
+    if (ai_personalizer) {
+      newIndividualAIPersonalizer = [...individual_personalizers, key];
       setIndividualPersonalizers([...individual_personalizers, key]);
     }
 
-    setIndividualAITitle("");
-    setIndividualAIPrompt("");
-    setIndividualAIDealbreaker(false);
-    setIndividualAIPersonalizer(false);
+    setAITitle("");
+    setAIPrompt("");
+    setAIDealbreaker(false);
+    setAIPersonalizer(false);
+
+    await addAIFilter(
+      company_ai_filters,
+      newIndividualAIFilters,
+      newDealbreaker,
+      company_personalizers,
+      newIndividualAIPersonalizer
+    );
   };
 
-  const onAddCompanyAIFilters = (
+  const onAddCompanyAIFilters = async (
     title: string,
     prompt: string,
-    use_linkedin: boolean
+    use_linkedin: boolean,
+    relevancy: string
   ) => {
     const key = "aicomp_" + title.toLowerCase().split(" ").join("_");
-    setCompanyAIFilters([
+    const newCompanyAIFilters = [
       ...company_ai_filters,
-      { key: key, title: title, prompt: prompt, use_linkedin: use_linkedin },
-    ]);
+      {
+        key: key,
+        title: title,
+        prompt: prompt,
+        use_linkedin: use_linkedin,
+        relevancy: relevancy,
+      },
+    ];
 
-    if (company_ai_dealbreaker) {
+    let newDealbreaker = [...dealbreakers];
+    let newCompanyAIPersonalizer = [...company_personalizers];
+
+    setCompanyAIFilters(newCompanyAIFilters);
+
+    if (ai_dealbreaker) {
+      newDealbreaker = [...dealbreakers, key];
       setDealBreakers([...dealbreakers, key]);
     }
-    if (company_ai_personalizer) {
+    if (ai_personalizer) {
+      newCompanyAIPersonalizer = [...company_personalizers, key];
       setCompanyPersonalizers([...company_personalizers, key]);
     }
 
-    setCompanyAITitle("");
-    setCompanyAIPrompt("");
-    setCompanyAIDealbreaker(false);
-    setCompanyAIPersonalizer(false);
+    setAITitle("");
+    setAIPrompt("");
+    setAIRelevancy("");
+    setAIDealbreaker(false);
+    setAIPersonalizer(false);
+
+    await addAIFilter(
+      newCompanyAIFilters,
+      individual_ai_filters,
+      newDealbreaker,
+      newCompanyAIPersonalizer,
+      individual_personalizers
+    );
   };
 
   const titleOptions = [
@@ -321,6 +369,271 @@ const CampaignFilters = function ({
   const companyOptions = [...new Set(prospects.map((x) => x.company))].filter(
     (x) => x
   );
+
+  const fetchSavedQueries = async () => {
+    try {
+      const response = await fetch(`${API_URL}/apollo/get_all_saved_queries`, {
+        method: "GET",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${userToken}`,
+        },
+      });
+      const data = await response.json();
+      if (data.status === "success") {
+        const formattedPrefilters = data.data.map((query: any) => ({
+          title: query.custom_name,
+          id: query.id,
+          prospects: query.num_results,
+          status: true, // Assuming all fetched queries are active by default
+        }));
+        setPrefilters(formattedPrefilters);
+      } else {
+        console.error("Failed to fetch saved queries:", data);
+      }
+    } catch (error) {
+      console.error("Error fetching saved queries:", error);
+    }
+  };
+
+  const mergeSavedQueries = async (saved_query_id: number) => {
+    setScoreLoading(true);
+    if (saved_query_id !== undefined) {
+      try {
+        const response = await fetch(
+          `${API_URL}/apollo/get_saved_query/${saved_query_id}`,
+          {
+            method: "GET",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${userToken}`,
+            },
+          }
+        );
+        const data = await response.json();
+        if (data.status === "success") {
+          const queryDetails = data.data;
+
+          const updateState = (
+            setter: {
+              (value: React.SetStateAction<string[]>): void;
+              (value: React.SetStateAction<string[]>): void;
+              (value: React.SetStateAction<string[]>): void;
+              (value: React.SetStateAction<string[]>): void;
+              (value: React.SetStateAction<string[]>): void;
+              (value: React.SetStateAction<string[]>): void;
+              (arg0: (prevState: any) => any[]): void;
+            },
+            value: any
+          ) => {
+            setter((prevState) =>
+              Array.from(new Set([...prevState, ...value]))
+            );
+          };
+
+          updateState(
+            setIncludedIndividualTitleKeywords,
+            queryDetails.data.person_titles || []
+          );
+          updateState(
+            setIncludedIndividualSeniorityKeywords,
+            queryDetails.data.person_seniorities || []
+          );
+          updateState(
+            setExcludedIndividualTitleKeywords,
+            queryDetails.data.person_not_titles || []
+          );
+
+          const industryBreadcrumbs = queryDetails.results.breadcrumbs.filter(
+            (breadcrumb: any) => breadcrumb.label === "Industry"
+          );
+          if (industryBreadcrumbs.length > 0) {
+            const industryNames = industryBreadcrumbs.map(
+              (breadcrumb: any) => breadcrumb.display_name
+            );
+            const industryIds = industryBreadcrumbs.reduce(
+              (acc: any, breadcrumb: any) => {
+                acc[breadcrumb.display_name] = breadcrumb.value;
+                return acc;
+              },
+              {}
+            );
+
+            updateState(setIncludedCompanyIndustriesKeywords, industryNames);
+            // updateState(setIndustryOptions, industryNames);
+            //   setIndustryOptionsWithIds((prevOptions: any) => ({
+            //     ...prevOptions,
+            //     ...industryIds,
+            //   }));
+            // } else {
+            updateState(
+              setIncludedCompanyIndustriesKeywords,
+              queryDetails.data.organization_industry_tag_ids || []
+            );
+          }
+
+          // setRevenue((prev) => ({
+          //   min: queryDetails.data.revenue_range?.min
+          //     ? String(queryDetails.data.revenue_range.min)
+          //     : prev.min,
+          //   max: queryDetails.data.revenue_range?.max
+          //     ? String(queryDetails.data.revenue_range.max)
+          //     : prev.max,
+          // }));
+
+          // setCompanyName((prev) => queryDetails.data.q_person_title || prev);
+          setIncludedCompanyNameKeywords(
+            (prev) => queryDetails.data.q_organization_keyword_tags || prev
+          );
+
+          const companyBreadcrumbs = queryDetails.results.breadcrumbs.filter(
+            (breadcrumb: any) => breadcrumb.label === "Companies"
+          );
+          // if (companyBreadcrumbs.length > 0) {
+          //   const companyNames = companyBreadcrumbs.map(
+          //     (breadcrumb: any) => breadcrumb.value
+          //   );
+          //   const companyOptions = companyBreadcrumbs.map(
+          //     (breadcrumb: any) => ({
+          //       label: breadcrumb.display_name,
+          //       value: breadcrumb.value,
+          //       logo_url: breadcrumb.logo_url || "",
+          //     })
+          //   );
+
+          //   updateState(setSelectedCompanies, companyNames);
+          //   updateState(setCompanyOptions, companyOptions);
+          // } else {
+          //   updateState(setSelectedCompanies, queryDetails.data.organization_ids || []);
+          // }
+
+          updateState(
+            setIncludedIndividualLocationsKeywords,
+            queryDetails.data.person_locations || []
+          );
+          // setExperience((prev) => queryDetails.data.person_seniorities || prev);
+          // updateState(setFundraise, queryDetails.data.organization_latest_funding_stage_cd || []);
+          // setCompanyDomain((prev) => queryDetails.data.q_organization_search_list_id || prev);
+          // setAiPrompt((prev) => prev); // Assuming no change needed
+          // updateState(setSelectedNumEmployees, queryDetails.data.organization_num_employees_ranges || []);
+
+          const technologyBreadcrumbs = queryDetails.results.breadcrumbs.filter(
+            (breadcrumb: any) => breadcrumb.label === "Use at least one of"
+          );
+          if (technologyBreadcrumbs.length > 0) {
+            const technologyNames = technologyBreadcrumbs.map(
+              (breadcrumb: any) => breadcrumb.display_name
+            );
+            const technologyUids = technologyBreadcrumbs.reduce(
+              (acc: any, breadcrumb: any) => {
+                acc[breadcrumb.display_name] = breadcrumb.value;
+                return acc;
+              },
+              {}
+            );
+
+            // updateState(setTechnology, technologyNames);
+            // updateState(setTechnologyOptions, technologyNames);
+            // setTechnologyOptionsWithUids((prevOptions: any) => ({
+            //   ...prevOptions,
+            //   ...technologyUids,
+            // }));
+          } else {
+            // updateState(setTechnology, queryDetails.data.currently_using_any_of_technology_uids || []);
+          }
+
+          // updateState(setEventTypes, queryDetails.data.event_categories || []);
+          // setDays((prev) =>
+          //   queryDetails.data.published_at_date_range
+          //     ? parseInt(
+          //         queryDetails.data.published_at_date_range.min.replace(
+          //           "_days_ago",
+          //           ""
+          //         ),
+          //         10
+          //       )
+          //     : prev
+          // );
+          // setRecentNews((prev) => queryDetails.data.q_organization_keyword_tags || prev);
+          // setDepartmentMinCount(
+          //   (prev) =>
+          //     queryDetails.data.organization_department_or_subdepartment_counts
+          //       ?.min || prev
+          // );
+          // setDepartmentMaxCount(
+          //   (prev) =>
+          //     queryDetails.data.organization_department_or_subdepartment_counts
+          //       ?.max || prev
+          // );
+
+          // setTotalFound((prev) => prev + (queryDetails.results.pagination.total_entries > 100 ? queryDetails.results.pagination.total_entries : queryDetails.results.people.length) || 0);
+          // setProspects([]);
+        } else {
+          console.error("Failed to fetch saved query:", data);
+        }
+      } catch (error) {
+        console.error("Error fetching saved query:", error);
+      }
+    }
+    setScoreLoading(false);
+  };
+
+  const handleApply = async () => {
+    if (!selectedFilter) return;
+    // innerProps.id = Number(selectedFilter);
+    // setShowApplyButton(false);
+    // setCurrentSavedQueryId(
+    //   prefilters.find((prefilter) => prefilter.id === Number(selectedFilter))
+    //     ?.id
+    // );
+  };
+
+  const addAIFilter = async (
+    companyAIFilters: AIFilters[],
+    individualAIFilters: AIFilters[],
+    dealbreakers: string[],
+    companyPersonalizers: string[],
+    individualPersonalizers: string[]
+  ) => {
+    const response = await fetch(`${API_URL}/icp_scoring/add_ai_filter`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${userToken}`,
+      },
+      body: JSON.stringify({
+        archetype_id: archetype_id,
+        individual_personalizers: individualPersonalizers,
+        company_personalizers: companyPersonalizers,
+        dealbreakers: dealbreakers,
+        individual_ai_filters: individualAIFilters,
+        company_ai_filters: companyAIFilters,
+      }),
+    });
+
+    if (response.status === 200) {
+      await queryClient.invalidateQueries(["archetypeProspects", archetype_id]);
+      await queryClient.invalidateQueries(["icpScoringRuleset", archetype_id]);
+      setScoreLoading(false);
+      showNotification({
+        title: "Success",
+        message: "Successfully added AI Filter to the ICP ruleset.",
+        color: "blue",
+      });
+
+      await queryClient.invalidateQueries([
+        `query-get-research-point-types`,
+        archetype_id,
+      ]);
+    } else {
+      setScoreLoading(false);
+      showNotification({
+        title: "Error",
+        message: "Failed to add AI filters to the ICP ruleset",
+        color: "red",
+      });
+    }
+  };
 
   const scoreCampaignFilters = async () => {
     setScoreLoading(true);
@@ -401,6 +714,11 @@ const CampaignFilters = function ({
           "Successfully scored the Campaign Prospects with the ICP ruleset. AI Filters will take a while to show up.",
         color: "blue",
       });
+
+      await queryClient.invalidateQueries([
+        `query-get-research-point-types`,
+        archetype_id,
+      ]);
     } else {
       setScoreLoading(false);
       showNotification({
@@ -420,6 +738,9 @@ const CampaignFilters = function ({
       <Title size={"h4"} color={"purple"}>
         <Flex gap={"4px"} justify={"space-between"} align={"center"}>
           <Text>Filter Contacts</Text>
+          <ActionIcon onClick={() => setCollapseFilters(true)}>
+            <IconChevronLeft />
+          </ActionIcon>
         </Flex>
       </Title>
       <Box
@@ -432,11 +753,15 @@ const CampaignFilters = function ({
           marginRight: "4px",
         }}
       >
-        <Flex style={{maxWidth: "300px", minWidth: "300px"}} gap={"4px"} align={"center"}>
+        <Flex
+          style={{ maxWidth: "300px", minWidth: "300px" }}
+          gap={"4px"}
+          align={"center"}
+        >
           <Button
             color={"red"}
             size={"md"}
-            style={{width: "65%"}}
+            style={{ width: "65%" }}
             onClick={() => scoreCampaignFilters()}
             disabled={scoreLoading}
           >
@@ -461,7 +786,7 @@ const CampaignFilters = function ({
         {isScoring && isScoring > 0 ? (
           <Progress
             color={"grape"}
-            value={(isScoring - programmaticUpdates.size) / isScoring * 100}
+            value={((isScoring - programmaticUpdates.size) / isScoring) * 100}
             label={"testing"}
           />
         ) : (
@@ -476,183 +801,101 @@ const CampaignFilters = function ({
                 AI Filter
               </Accordion.Control>
               <Accordion.Panel>
-                {viewIndividualAIFilters ? (
-                  <Flex direction={"column"} gap={"4px"}>
-                    <Flex justify={"space-between"} align={"center"}>
-                      <Text fz="md">Add AI Filters</Text>
-                      <Switch
-                        onLabel="Individual"
-                        offLabel="Company"
-                        checked={viewIndividualAIFilters}
-                        onChange={(event) =>
-                          setViewIndividualAIFilters(
-                            event.currentTarget.checked
-                          )
-                        }
-                        size={"lg"}
-                      />
-                    </Flex>
-                    <TextInput
-                      placeholder="Enter Title"
-                      value={individual_ai_title}
-                      label="Title"
-                      description="This will be the title that is displayed as a column"
-                      withAsterisk
-                      onChange={(event) =>
-                        setIndividualAITitle(event.currentTarget.value)
-                      }
-                    />
-                    <Textarea
-                      placeholder="Enter AI prompt here. A question to score your list."
-                      value={individual_ai_prompt}
-                      label="AI Filter"
-                      withAsterisk
-                      minRows={8}
-                      maxRows={8}
-                      onChange={(event) =>
-                        setIndividualAIPrompt(event.currentTarget.value)
-                      }
-                    />
-                    <Checkbox
-                      label="Is Dealbreaker"
-                      checked={individual_ai_dealbreaker}
-                      onChange={(event) =>
-                        setIndividualAIDealbreaker(event.currentTarget.checked)
-                      }
-                    />
-                    <Checkbox
-                      label="Personalizer"
-                      checked={individual_ai_personalizer}
-                      onChange={(event) =>
-                        setIndividualAIPersonalizer(event.currentTarget.checked)
-                      }
-                    />
-                    <Switch
-                      onLabel="Use Linkedin"
-                      offLabel="Use Search"
-                      size={"lg"}
-                      onChange={(event) =>
-                        setIndividualAIUseLinkedin(event.currentTarget.checked)
-                      }
-                    />
-                    <Button
-                      disabled={!individual_ai_title || !individual_ai_prompt}
-                      onClick={() => {
-                        const key =
-                          "aiind_" +
-                          individual_ai_title
-                            .toLowerCase()
-                            .split(" ")
-                            .join("_");
-
-                        setHeaderSet(
-                          (prevState) => new Set([...prevState, key])
-                        );
-                        setContactTableHeaders((prevState) => {
-                          const set = new Set([
-                            ...prevState,
-                            { key: key, title: individual_ai_title },
-                          ]);
-                          return [...set];
-                        });
-                        onAddIndividualAIFilters(
-                          individual_ai_title,
-                          individual_ai_prompt,
-                          individual_ai_use_linkedin
-                        );
-                      }}
-                    >
-                      Add AI Filter
-                    </Button>
+                <Flex direction={"column"} gap={"4px"}>
+                  <Flex justify={"space-between"} align={"center"}>
+                    <Text fz="md">Add AI Filters</Text>
                   </Flex>
-                ) : (
-                  <Flex direction={"column"} gap={"4px"}>
-                    <Flex justify={"space-between"} align={"center"}>
-                      <Text fz="md">Add AI Filters</Text>
-                      <Switch
-                        onLabel="Individual"
-                        offLabel="Company"
-                        checked={viewIndividualAIFilters}
-                        onChange={(event) =>
-                          setViewIndividualAIFilters(
-                            event.currentTarget.checked
-                          )
-                        }
-                        size={"lg"}
-                      />
-                    </Flex>
-                    <TextInput
-                      placeholder="Enter Title"
-                      value={company_ai_title}
-                      label="Title"
-                      description="This will be the title that is displayed as a column"
-                      withAsterisk
-                      onChange={(event) =>
-                        setCompanyAITitle(event.currentTarget.value)
-                      }
-                    />
-                    <Textarea
-                      placeholder="Enter AI prompt here. A question to score your list."
-                      value={company_ai_prompt}
-                      label="AI Filter"
-                      withAsterisk
-                      minRows={8}
-                      maxRows={8}
-                      onChange={(event) =>
-                        setCompanyAIPrompt(event.currentTarget.value)
-                      }
-                    />
-                    <Checkbox
-                      label="Is Dealbreaker"
-                      checked={company_ai_dealbreaker}
-                      onChange={(event) =>
-                        setCompanyAIDealbreaker(event.currentTarget.checked)
-                      }
-                    />
-                    <Checkbox
-                      label="Personalizer"
-                      checked={company_ai_personalizer}
-                      onChange={(event) =>
-                        setCompanyAIPersonalizer(event.currentTarget.checked)
-                      }
-                    />
-                    <Switch
-                      onLabel="Use Linkedin"
-                      offLabel="Use Search"
-                      size={"lg"}
-                      onChange={(event) =>
-                        setCompanyAIUseLinkedin(event.currentTarget.checked)
-                      }
-                    />
-                    <Button
-                      disabled={!company_ai_title || !company_ai_prompt}
-                      onClick={() => {
-                        const key =
-                          "aicomp_" +
-                          company_ai_title.toLowerCase().split(" ").join("_");
+                  <TextInput
+                    placeholder="Enter Title"
+                    value={ai_title}
+                    label="Title"
+                    description="This will be the title that is displayed as a column"
+                    withAsterisk
+                    onChange={(event) => setAITitle(event.currentTarget.value)}
+                  />
+                  <Textarea
+                    placeholder="Enter AI prompt here. A question to score your list. You must include only either [[prospect]] or [[company]] into your list."
+                    value={ai_prompt}
+                    label="AI Filter"
+                    withAsterisk
+                    minRows={8}
+                    maxRows={8}
+                    onChange={(event) => setAIPrompt(event.currentTarget.value)}
+                  />
+                  <Textarea
+                    placeholder="Enter Relevancy here."
+                    value={ai_relevancy}
+                    label="Relevancy"
+                    withAsterisk
+                    minRows={8}
+                    maxRows={8}
+                    onChange={(event) =>
+                      setAIRelevancy(event.currentTarget.value)
+                    }
+                  />
+                  <Checkbox
+                    label="Is Dealbreaker"
+                    checked={ai_dealbreaker}
+                    onChange={(event) =>
+                      setAIDealbreaker(event.currentTarget.checked)
+                    }
+                  />
+                  <Checkbox
+                    label="Personalizer"
+                    checked={ai_personalizer}
+                    onChange={(event) =>
+                      setAIPersonalizer(event.currentTarget.checked)
+                    }
+                  />
+                  <Switch
+                    onLabel="Use Linkedin"
+                    offLabel="Use Search"
+                    size={"lg"}
+                    onChange={(event) =>
+                      setAIUseLinkedin(event.currentTarget.checked)
+                    }
+                  />
+                  <Button
+                    disabled={
+                      !ai_title ||
+                      !ai_prompt ||
+                      (!ai_prompt.includes("[[prospect]]") &&
+                        !ai_prompt.includes("[[company]]")) ||
+                      !ai_relevancy
+                    }
+                    onClick={async () => {
+                      const key =
+                        "aiind_" + ai_title.toLowerCase().split(" ").join("_");
 
-                        setHeaderSet(
-                          (prevState) => new Set([...prevState, key])
-                        );
-                        setContactTableHeaders((prevState) => {
-                          const set = new Set([
-                            ...prevState,
-                            { key: key, title: company_ai_title },
-                          ]);
-                          return [...set];
-                        });
-                        onAddCompanyAIFilters(
-                          company_ai_title,
-                          company_ai_prompt,
-                          company_ai_use_linkedin
-                        );
-                      }}
-                    >
-                      Add AI Filter
-                    </Button>
-                  </Flex>
-                )}
+                      setHeaderSet((prevState) => new Set([...prevState, key]));
+                      setContactTableHeaders((prevState) => {
+                        const set = new Set([
+                          ...prevState,
+                          { key: key, title: ai_title },
+                        ]);
+                        return [...set];
+                      });
 
+                      if (ai_prompt.includes("[[prospect]]")) {
+                        await onAddIndividualAIFilters(
+                          ai_title,
+                          ai_prompt,
+                          ai_use_linkedin,
+                          ai_relevancy
+                        );
+                      } else {
+                        await onAddCompanyAIFilters(
+                          ai_title,
+                          ai_prompt,
+                          ai_use_linkedin,
+                          ai_relevancy
+                        );
+                      }
+                    }}
+                  >
+                    Add AI Filter
+                  </Button>
+                </Flex>
                 <Accordion
                   styles={{ content: { padding: "2px" } }}
                   variant={"filled"}
@@ -685,7 +928,13 @@ const CampaignFilters = function ({
                                   Individual
                                 </Badge>
                                 <ActionIcon
-                                  onClick={() => {
+                                  onClick={async () => {
+                                    let newIndividualAIFilters: AIFilters[] =
+                                      [];
+                                    let newDealbreaker: string[] = [];
+                                    let newIndividualAIPersonalizer: string[] =
+                                      [];
+
                                     setHeaderSet((prevState) => {
                                       prevState.delete(aiFilter.key);
                                       return new Set([...prevState]);
@@ -695,20 +944,38 @@ const CampaignFilters = function ({
                                         (item) => item.key !== aiFilter.key
                                       )
                                     );
-                                    setDealBreakers((prevState) =>
-                                      prevState.filter(
+                                    setDealBreakers((prevState) => {
+                                      newDealbreaker = prevState.filter(
                                         (x) => x !== aiFilter.key
-                                      )
-                                    );
-                                    setIndividualPersonalizers((prevState) =>
-                                      prevState.filter(
+                                      );
+                                      return prevState.filter(
                                         (x) => x !== aiFilter.key
-                                      )
-                                    );
-                                    setIndividualAIFilters((prevState) =>
-                                      prevState.filter(
+                                      );
+                                    });
+                                    setIndividualPersonalizers((prevState) => {
+                                      newIndividualAIPersonalizer =
+                                        prevState.filter(
+                                          (x) => x !== aiFilter.key
+                                        );
+                                      return prevState.filter(
+                                        (x) => x !== aiFilter.key
+                                      );
+                                    });
+                                    setIndividualAIFilters((prevState) => {
+                                      newIndividualAIFilters = prevState.filter(
                                         (item) => item.key !== aiFilter.key
-                                      )
+                                      );
+                                      return prevState.filter(
+                                        (item) => item.key !== aiFilter.key
+                                      );
+                                    });
+
+                                    await addAIFilter(
+                                      company_ai_filters,
+                                      newIndividualAIFilters,
+                                      newDealbreaker,
+                                      company_personalizers,
+                                      newIndividualAIPersonalizer
                                     );
                                   }}
                                 >
@@ -721,6 +988,7 @@ const CampaignFilters = function ({
                               </Text>
                               <Textarea
                                 fw={500}
+                                label={"prompt"}
                                 value={aiFilter.prompt}
                                 onChange={(event) => {
                                   setIndividualAIFilters((prevState) => {
@@ -741,6 +1009,30 @@ const CampaignFilters = function ({
                                 maxRows={8}
                               >
                                 {aiFilter.prompt}
+                              </Textarea>
+                              <Textarea
+                                fw={500}
+                                label={"relevancy"}
+                                value={aiFilter.relevancy}
+                                onChange={(event) => {
+                                  setIndividualAIFilters((prevState) => {
+                                    return prevState.map((previousAI) => {
+                                      if (previousAI.key === aiFilter.key) {
+                                        return {
+                                          ...aiFilter,
+                                          relevancy: event.currentTarget.value,
+                                        };
+                                      }
+
+                                      return previousAI;
+                                    });
+                                  });
+                                }}
+                                autosize
+                                minRows={4}
+                                maxRows={8}
+                              >
+                                {aiFilter.relevancy}
                               </Textarea>
                               <Flex
                                 direction={"column"}
@@ -817,7 +1109,11 @@ const CampaignFilters = function ({
                                   Company
                                 </Badge>
                                 <ActionIcon
-                                  onClick={() => {
+                                  onClick={async () => {
+                                    let newCompanyAIFilters: AIFilters[] = [];
+                                    let newDealbreaker: string[] = [];
+                                    let newCompanyAIPersonalizer: string[] = [];
+
                                     setHeaderSet((prevState) => {
                                       prevState.delete(aiFilter.key);
                                       return new Set([...prevState]);
@@ -827,20 +1123,39 @@ const CampaignFilters = function ({
                                         (item) => item.key !== aiFilter.key
                                       )
                                     );
-                                    setDealBreakers((prevState) =>
-                                      prevState.filter(
+                                    setDealBreakers((prevState) => {
+                                      newDealbreaker = prevState.filter(
                                         (x) => x !== aiFilter.key
-                                      )
-                                    );
-                                    setCompanyPersonalizers((prevState) =>
-                                      prevState.filter(
+                                      );
+                                      return prevState.filter(
                                         (x) => x !== aiFilter.key
-                                      )
-                                    );
-                                    setCompanyAIFilters((prevState) =>
-                                      prevState.filter(
+                                      );
+                                    });
+                                    setCompanyPersonalizers((prevState) => {
+                                      newCompanyAIPersonalizer =
+                                        prevState.filter(
+                                          (x) => x !== aiFilter.key
+                                        );
+                                      return prevState.filter(
+                                        (x) => x !== aiFilter.key
+                                      );
+                                    });
+                                    setCompanyAIFilters((prevState) => {
+                                      newCompanyAIFilters = prevState.filter(
                                         (item) => item.key !== aiFilter.key
-                                      )
+                                      );
+
+                                      return prevState.filter(
+                                        (item) => item.key !== aiFilter.key
+                                      );
+                                    });
+
+                                    await addAIFilter(
+                                      newCompanyAIFilters,
+                                      individual_ai_filters,
+                                      newDealbreaker,
+                                      newCompanyAIPersonalizer,
+                                      individual_personalizers
                                     );
                                   }}
                                 >
@@ -873,6 +1188,29 @@ const CampaignFilters = function ({
                                 maxRows={8}
                               >
                                 {aiFilter.prompt}
+                              </Textarea>
+                              <Textarea
+                                fw={500}
+                                value={aiFilter.relevancy}
+                                onChange={(event) => {
+                                  setCompanyAIFilters((prevState) => {
+                                    return prevState.map((previousAI) => {
+                                      if (previousAI.key === aiFilter.key) {
+                                        return {
+                                          ...aiFilter,
+                                          relevancy: event.currentTarget.value,
+                                        };
+                                      }
+
+                                      return previousAI;
+                                    });
+                                  });
+                                }}
+                                autosize
+                                minRows={4}
+                                maxRows={8}
+                              >
+                                {aiFilter.relevancy}
                               </Textarea>
                               <Flex
                                 direction={"column"}
@@ -941,7 +1279,23 @@ const CampaignFilters = function ({
               <Accordion.Control
                 icon={<IconUser fill={"black"} size={"1.3rem"} />}
               >
-                Individual
+                Individual{" "}
+                <Badge ml="sm" color="gray">
+                  {included_individual_title_keywords.length +
+                    excluded_individual_title_keywords.length +
+                    included_individual_seniority_keywords.length +
+                    excluded_individual_seniority_keywords.length +
+                    included_individual_industry_keywords.length +
+                    excluded_individual_industry_keywords.length +
+                    included_individual_skills_keywords.length +
+                    excluded_individual_skills_keywords.length +
+                    included_individual_locations_keywords.length +
+                    excluded_individual_locations_keywords.length +
+                    included_individual_generalized_keywords.length +
+                    included_individual_education_keywords.length +
+                    excluded_individual_education_keywords.length +
+                    excluded_individual_generalized_keywords.length}
+                </Badge>
               </Accordion.Control>
               <Accordion.Panel>
                 <Flex direction={"column"} gap={"4px"}>
@@ -1312,6 +1666,16 @@ const CampaignFilters = function ({
                 icon={<IconUsers fill={"black"} size={"1.3rem"} />}
               >
                 Company
+                <Badge ml="sm" color="gray">
+                  {included_company_name_keywords.length +
+                    excluded_company_name_keywords.length +
+                    included_company_locations_keywords.length +
+                    excluded_company_locations_keywords.length +
+                    included_company_industries_keywords.length +
+                    excluded_company_industries_keywords.length +
+                    included_company_generalized_keywords.length +
+                    excluded_company_generalized_keywords.length}
+                </Badge>
               </Accordion.Control>
               <Accordion.Panel>
                 <Flex direction={"column"} gap={"4px"}>
@@ -1572,6 +1936,51 @@ const CampaignFilters = function ({
                       }}
                     />
                   </ItemCollapse>
+                </Flex>
+              </Accordion.Panel>
+            </Accordion.Item>
+            <Accordion.Item value="saved_icp_filter">
+              <Accordion.Control
+                icon={<IconFilter fill={"black"} size={"1.3rem"} />}
+              >
+                Apply saved ICP filter
+              </Accordion.Control>
+              <Accordion.Panel>
+                <Flex direction={"column"} gap={"4px"} w="500px">
+                  <Select
+                    w="100%"
+                    label="Saved filters"
+                    placeholder="Pick one"
+                    data={prefilters.map((prefilter) => ({
+                      value: prefilter.id,
+                      label: prefilter.title,
+                    }))}
+                    value={selectedFilter}
+                    onChange={(value) => {
+                      setSelectedFilter(value);
+                      const handleApply = async (value: any) => {
+                        mergeSavedQueries(Number(value));
+                        // if (!value) return;
+                        // innerProps.id = Number(value);
+                        // setShowApplyButton(false);
+                        // setCurrentSavedQueryId(prefilters.find((prefilter) => prefilter.id === Number(value))?.id);
+                      };
+                      handleApply(value);
+                      // setShowApplyButton(true);
+                    }}
+                    rightSection={
+                      false && (
+                        <Button
+                          onClick={handleApply}
+                          size="xs"
+                          style={{ marginLeft: "-60px" }}
+                        >
+                          Apply
+                        </Button>
+                      )
+                    }
+                    style={{ width: "50%" }}
+                  />
                 </Flex>
               </Accordion.Panel>
             </Accordion.Item>

@@ -17,6 +17,7 @@ interface Client {
         domains: Record<string, number>;
         email_outbound: Record<string, number>;
         linkedin_outbound: Record<string, number>;
+        deanon: Record<string, number>;
         phantombuster: Record<string, number>;
     };
 }
@@ -53,6 +54,7 @@ const ClientSpending: React.FC<{ isInternal?: boolean, selectedClient?: number }
     }, [userData.client.id, userToken, selectedClient]);
 
     // NOTE: There is a margin calculated here if isInternal = false
+    //results in everything is 1.5 x the value
     const transformSpendingData = (data: any) => {
         const transform = (spending: Record<string, string | number>) => {
             return Object.keys(spending).reduce((acc, key) => {
@@ -67,6 +69,7 @@ const ClientSpending: React.FC<{ isInternal?: boolean, selectedClient?: number }
             email_outbound: transform(data.email_outbound),
             linkedin_outbound: transform(data.linkedin_outbound),
             phantombuster: transform(data.phantombuster),
+            deanon: transform(data.deanon),
         };
     };
 
@@ -124,7 +127,8 @@ const ClientSpending: React.FC<{ isInternal?: boolean, selectedClient?: number }
         ...Object.keys(clientSpending ? clientSpending.domains : {}),
         ...Object.keys(clientSpending ? clientSpending.email_outbound : {}),
         ...Object.keys(clientSpending ? clientSpending.linkedin_outbound : {}),
-        ...Object.keys(clientSpending ? clientSpending.phantombuster : {})
+        ...Object.keys(clientSpending ? clientSpending.phantombuster : {}),
+        ...Object.keys(clientSpending ? clientSpending.deanon : {}),
     ].map(date => new Date(date));
 
     const earliestDate = new Date(Math.min(...allDates.map(date => date.getTime())));
@@ -167,6 +171,7 @@ const ClientSpending: React.FC<{ isInternal?: boolean, selectedClient?: number }
                 pointBorderColor: '#fff',
                 pointHoverBackgroundColor: '#fff',
                 pointHoverBorderColor: 'rgba(75, 192, 192, 1)',
+                tension: 0.4,
             },
             {
                 label: 'Domains',
@@ -177,6 +182,7 @@ const ClientSpending: React.FC<{ isInternal?: boolean, selectedClient?: number }
                 pointBorderColor: '#fff',
                 pointHoverBackgroundColor: '#fff',
                 pointHoverBorderColor: 'rgba(255, 206, 86, 1)',
+                tension: 0.4,
             },
             {
                 label: 'Email Outbound',
@@ -187,6 +193,7 @@ const ClientSpending: React.FC<{ isInternal?: boolean, selectedClient?: number }
                 pointBorderColor: '#fff',
                 pointHoverBackgroundColor: '#fff',
                 pointHoverBorderColor: 'rgba(153, 102, 255, 1)',
+                tension: 0.4,
             },
             {
                 label: 'LinkedIn Outbound',
@@ -197,6 +204,7 @@ const ClientSpending: React.FC<{ isInternal?: boolean, selectedClient?: number }
                 pointBorderColor: '#fff',
                 pointHoverBackgroundColor: '#fff',
                 pointHoverBorderColor: 'rgba(54, 162, 235, 1)',
+                tension: 0.4,
             },
             {
                 label: 'Linkedin Connections',
@@ -207,6 +215,18 @@ const ClientSpending: React.FC<{ isInternal?: boolean, selectedClient?: number }
                 pointBorderColor: '#fff',
                 pointHoverBackgroundColor: '#fff',
                 pointHoverBorderColor: 'rgba(255, 159, 64, 1)',
+                tension: 0.4,
+            },
+            {
+                label: 'Website Deanonymizations',
+                data: fillMissingMonths(createMonthlyData(clientSpending.deanon), labels),
+                borderColor: 'rgba(255, 99, 132, 1)',
+                backgroundColor: 'rgba(255, 99, 132, 0.2)',
+                pointBackgroundColor: 'rgba(255, 99, 132, 1)',
+                pointBorderColor: '#fff',
+                pointHoverBackgroundColor: '#fff',
+                pointHoverBorderColor: 'rgba(255, 99, 132, 1)',
+                tension: 0.4,
             },
         ] : [],
     };
@@ -292,7 +312,36 @@ const ClientSpending: React.FC<{ isInternal?: boolean, selectedClient?: number }
                                 </Text>
                             </Flex>
                             <Text fw={600} mr={"sm"}>
-                                ${projectedSpending.toFixed(2)}
+                                ${clientSpending 
+                                    ? calculateTotalSpending({
+                                        ...clientSpending,
+                                        apollo: {
+                                            [Object.keys(clientSpending.apollo).pop()!]: 
+                                            Object.values(clientSpending.apollo).pop()!
+                                        },
+                                        domains: {
+                                            [Object.keys(clientSpending.domains).pop()!]: 
+                                            Object.values(clientSpending.domains).pop()!
+                                        },
+                                        email_outbound: {
+                                            [Object.keys(clientSpending.email_outbound).pop()!]: 
+                                            Object.values(clientSpending.email_outbound).pop()!
+                                        },
+                                        linkedin_outbound: {
+                                            [Object.keys(clientSpending.linkedin_outbound).pop()!]: 
+                                            Object.values(clientSpending.linkedin_outbound).pop()!
+                                        },
+                                        phantombuster: {
+                                            [Object.keys(clientSpending.phantombuster).pop()!]: 
+                                            Object.values(clientSpending.phantombuster).pop()!
+                                        },
+                                        deanon: {
+                                            [Object.keys(clientSpending.deanon).pop()!]: 
+                                            Object.values(clientSpending.deanon).pop()!
+                                        }
+                                    }).toFixed(2) 
+                                    : '0.00'
+                                }
                             </Text>
                         </Paper>
                     </Flex>
